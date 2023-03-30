@@ -1,0 +1,59 @@
+#! /usr/bin/env ruby
+
+require 'optparse'
+
+def main
+  options = {}
+  OptionParser.new do |opts|
+    opts.banner = "Usage: g5k-setup-docker [-it]\nInstall Docker (and Docker Compose) locally and make Docker commands available without user needing to log out"
+    opts.on('-i', '--install', 'Just install Docker locally (user need to log out)') do |i|
+      options[:install] = i
+    end
+    opts.on('-t', '--tmp', 'Bind /tmp/docker to /var/lib/docker to provide more storage space for pulled images (WARNING : A reboot will erase it)') do |t|
+      options[:tmp] = t
+    end
+  end.parse!
+
+  ret = true
+  ret &= sh('sudo-g5k').first if Process.euid != 0
+  if options[:tmp]
+    ret &= sh('sudo mkdir -p /tmp/docker').first
+    ret &= sh('sudo mkdir -p /var/lib/docker').first
+    ret &= sh('sudo mount --bind /tmp/docker /var/lib/docker').first
+  end
+  cpu_arch = `uname -m`.strip
+  # Docker is not officially supported on ppc64
+  if cpu_arch == 'ppc64le'
+    debian_version = `. /etc/os-release; echo $VERSION_CODENAME`.strip
+    if debian_version == 'stretch' or debian_version == 'buster'
+      ret &= sh('echo "deb http://packages.grid5000.fr/deb/docker-ce/buster /" | sudo tee /etc/apt/sources.list.d/docker-ce.list').first
+      ret &= sh('sudo apt-get update && sudo apt-get install -y docker-ce').first
+    else
+      # Starting from bullseye (debian11), a recent version of Docker is provided in offical Debian repositories
+      ret &= sh('sudo apt-get update && sudo apt-get install -y docker.io').first
+    end
+  else
+    ret &= sh('curl -sSL https://get.docker.com/ | sh').first
+    # Docker Compose (last 1.X version before 2.X version)
+    ret &= sh('sudo curl -sSL "https://github.com/docker/compose/releases/download/1.29.2/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose').first
+    ret &= sh('sudo chmod +x /usr/local/bin/docker-compose').first
+  end
+  ret &= sh('sudo mkdir -p /etc/docker')
+  ret &= sh('echo "{ \"registry-mirrors\": [\"http://docker-cache.grid5000.fr\"], \"hosts\": [\"tcp://0.0.0.0:2376\", \"unix:///var/run/docker.sock\"]}" | sudo tee /etc/docker/daemon.json')
+  ret &= sh('sudo mkdir /etc/systemd/system/docker.service.d')
+  ret &= sh('echo "[Service]\nExecStart=\nExecStart=/usr/bin/dockerd" | sudo tee /etc/systemd/system/docker.service.d/override.conf')
+  ret &= sh('sudo systemctl daemon-reload')
+  ret &= sh('sudo systemctl restart docker')
+  ret &= sh('sudo chmod o+rw /var/run/docker.sock').first if !options[:install]
+  ret
+end
+
+def sh(cmd)
+  puts(cmd)
+  output = `#{cmd}`.chomp
+  status = ($?.exitstatus == 0)
+  [status, output]
+end
+
+# MAIN PROGRAM
+exit(main)
