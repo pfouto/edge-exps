@@ -2,6 +2,7 @@ import com.charleskorn.kaml.Yaml
 import com.charleskorn.kaml.decodeFromStream
 import com.github.dockerjava.api.model.*
 import kotlinx.coroutines.*
+import kotlinx.coroutines.channels.Channel
 import org.apache.commons.lang3.exception.ExceptionUtils
 import org.apache.hc.client5.http.HttpHostConnectException
 import java.io.File
@@ -34,12 +35,12 @@ fun main(args: Array<String>) = runBlocking {
     val currentDir = Paths.get(System.getProperty("user.dir"))
     val uid = Files.getAttribute(currentDir, "unix:uid") as Int
     val gid = Files.getAttribute(currentDir, "unix:gid") as Int
-    println("$uid $gid")
+    //println("$uid $gid")
 
     when (command) {
         "setup" -> setup(hosts, arguments)
         "run" -> run(hosts, arguments)
-        "purge" -> purge(hosts, arguments)
+        "purge" -> purge(hosts)
         else -> throw IllegalArgumentException("Unknown command: $command")
     }
 
@@ -82,7 +83,7 @@ suspend fun setup(hosts: List<String>, arguments: Map<String, String>) {
     println("--- Creating clients")
     val proxies = hosts.map { DockerProxy(it) }
 
-    purge(hosts, arguments, proxies)
+    purge(hosts, proxies)
 
     println("--- Setting up swarm and network")
     val tokens = proxies[0].initSwarm()
@@ -138,22 +139,30 @@ suspend fun setup(hosts: List<String>, arguments: Map<String, String>) {
         .withCapAdd(Capability.SYS_ADMIN)
         .withCapAdd(Capability.NET_ADMIN)
         .withBinds(binds)
+        .withNetworkMode(config.networkName)
 
+    val createdChannel: Channel<String> = Channel(config.nContainers)
     coroutineScope {
-        proxies.map {
-            async(Dispatchers.IO) {
-                it.createContainers(
-                    containersInfo[it.shortHost]!!,
-                    config.imageTag,
-                    hostConfig,
-                    config.networkName,
-                    volumes,
-                    config.latencyFile,
-                    config.nContainers
-                )
-            }
-        }.joinAll()
+        async(Dispatchers.IO) {
+            proxies.map {
+                async(Dispatchers.IO) {
+                    it.createContainers(
+                        containersInfo[it.shortHost]!!, config.imageTag, hostConfig,
+                        volumes, config.latencyFile, config.nContainers, createdChannel
+                    )
+                }
+            }.joinAll()
+        }.invokeOnCompletion { createdChannel.close() }
+
+        var completed = 0
+        for (id in createdChannel) {
+            completed++
+            print("  $completed / ${config.nContainers} (${(completed.toFloat() / config.nContainers * 100).toInt()}%) containers created\r")
+        }
+        println("  $completed / ${config.nContainers} (${(completed.toFloat() / config.nContainers * 100).toInt()}%) containers created")
     }
+
+    println("--- Containers created")
 
 
 }
@@ -162,7 +171,7 @@ fun run(hosts: List<String>, arguments: Map<String, String>) {
 
 }
 
-suspend fun purge(hosts: List<String>, arguments: Map<String, String>, dockerClients: List<DockerProxy> = emptyList()) {
+suspend fun purge(hosts: List<String>, dockerClients: List<DockerProxy> = emptyList()) {
 
     println("--- Purging everything")
 

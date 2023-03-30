@@ -5,6 +5,7 @@ import com.github.dockerjava.core.DefaultDockerClientConfig
 import com.github.dockerjava.core.DockerClientImpl
 import com.github.dockerjava.httpclient5.ApacheDockerHttpClient
 import kotlinx.coroutines.*
+import kotlinx.coroutines.channels.Channel
 import java.io.BufferedReader
 import java.io.InputStreamReader
 import java.lang.IllegalStateException
@@ -26,6 +27,7 @@ class DockerProxy(private val host: String) {
             .build()
 
         client = DockerClientImpl.getInstance(dockerClientConfig, httpClient)
+        client.pingCmd().exec()
         println("Created DockerProxy for $shortHost")
     }
 
@@ -75,6 +77,7 @@ class DockerProxy(private val host: String) {
             .withName(name)
             .withIpam(ipam)
             .withAttachable(true)
+            .withCheckDuplicate(true)
             .withDriver("overlay").exec()
     }
 
@@ -83,55 +86,37 @@ class DockerProxy(private val host: String) {
         client.loadImageCmd(java.io.File(imageLoc).inputStream()).exec()
     }
 
-    fun createContainers(
-        pairs: MutableList<Pair<String, String>>,
-        imageTag: String,
-        hostConfig: HostConfig,
-        networkName: String,
-        volumes: Volumes,
-        latencyFile: String,
-        nContainers: Int,
+    suspend fun createContainers(
+        pairs: MutableList<Pair<String, String>>, imageTag: String, hostConfig: HostConfig,
+        volumes: Volumes, latencyFile: String, nContainers: Int, channel: Channel<String>,
     ) {
         println("Creating ${pairs.size} containers on $shortHost")
         pairs.forEach { (number, ip) ->
-            createContainer(number, ip, imageTag, hostConfig, networkName, volumes, latencyFile, nContainers)
+            createContainer(number, ip, imageTag, hostConfig, volumes, latencyFile, nContainers, channel)
         }
     }
 
-    private fun createContainer(
-        id: String,
-        ip: String,
-        image: String,
-        hostConfig: HostConfig,
-        network: String,
-        volumes: Volumes,
-        latencyFile: String,
-        nContainers: Int,
+    private suspend fun createContainer(
+        id: String, ip: String, image: String, hostConfig: HostConfig, volumes: Volumes,
+        latencyFile: String, nContainers: Int, channel: Channel<String>,
     ) {
-        println("Creating container $id on $shortHost")
+        //println("Creating container $id on $shortHost")
         val name = "node-$id"
 
-        val cId = client.createContainerCmd(image)
-            .withName(name)
-            .withHostName(name)
-            .withTty(true)
-            .withAttachStderr(false)
-            .withAttachStdout(false)
-            .withAttachStdin(false)
-            .withHostConfig(hostConfig)
-            .withVolumes(volumes.volumes.toList())
-            .withCmd(id, latencyFile, nContainers.toString())
-            .withIpv4Address(ip)
+        val cId = client.createContainerCmd(image).withName(name).withHostName(name).withTty(true)
+            .withAttachStderr(false).withAttachStdout(false)
+            .withAttachStdin(false).withHostConfig(hostConfig).withVolumes(volumes.volumes.toList())
+            .withCmd(id, latencyFile, nContainers.toString()).withIpv4Address(ip)
             .exec()
 
         client.startContainerCmd(cId.id).exec()
 
+        channel.send(cId.id)
     }
 
     fun close() {
         client.close()
     }
-
 
     companion object {
         suspend fun gridInstallDockerParallel(hosts: List<String>) = coroutineScope {
@@ -160,6 +145,7 @@ class DockerProxy(private val host: String) {
                     inputJob.join() // wait for input job to finish
                     errorJob.join() // wait for error job to finish
 
+                    process.waitFor()
                     println("$host exit value is ${process.exitValue()}")
                     process.exitValue()
                 }
