@@ -1,5 +1,6 @@
 import com.charleskorn.kaml.Yaml
 import com.charleskorn.kaml.decodeFromStream
+import com.github.dockerjava.api.model.*
 import kotlinx.coroutines.*
 import org.apache.commons.lang3.exception.ExceptionUtils
 import org.apache.hc.client5.http.HttpHostConnectException
@@ -86,16 +87,74 @@ suspend fun setup(hosts: List<String>, arguments: Map<String, String>) {
     println("--- Setting up swarm and network")
     val tokens = proxies[0].initSwarm()
     proxies.drop(1).forEach { it.joinSwarm(tokens, proxies[0].shortHost) }
-    if(proxies[0].getSwarmMembers().size != proxies.size)
+    if (proxies[0].getSwarmMembers().size != proxies.size)
         throw IllegalStateException("Swarm members are not equal to the number of hosts")
 
     val networks = proxies[0].listNetworks()
-    if(networks.contains(config.networkName)){
+    if (networks.contains(config.networkName)) {
         println("Network ${config.networkName} already exists, will not create it")
     } else {
         println("Creating overlay network ${config.networkName}")
         proxies[0].createOverlayNetwork(config.networkName, config.subnet, config.gateway)
     }
+
+    println("--- Loading images")
+    coroutineScope {
+        proxies.map {
+            async(Dispatchers.IO) {
+                it.loadImage(config.imageLoc)
+            }
+        }.joinAll()
+    }
+
+    println("--- Creating containers")
+
+    val containersInfo = mutableMapOf<String, MutableList<Pair<String, String>>>()
+    proxies.forEach { containersInfo[it.shortHost] = mutableListOf() }
+
+    val ips = File("tc/ips.txt").readLines()
+
+    for (containerNumber in config.nContainers - 1 downTo 0) {
+        val proxy = proxies[containerNumber % proxies.size]
+        containersInfo[proxy.shortHost]!!.add(Pair(containerNumber.toString(), ips[containerNumber]))
+    }
+
+    val modulesVol = Volume("/lib/modules")
+    val logsVol = Volume("/logs")
+    val tcVol = Volume("/tc")
+    val codeVol = Volume("/code")
+
+    val volumes = Volumes(modulesVol, logsVol, tcVol, codeVol)
+
+    val binds = Binds(
+        Bind("/lib/modules", modulesVol),
+        Bind(config.logsFolder, logsVol),
+        Bind(config.tcFolder, tcVol, AccessMode.ro),
+        Bind(config.codeFolder, codeVol, AccessMode.ro)
+    )
+    val hostConfig = HostConfig()
+        .withAutoRemove(true)
+        .withPrivileged(true)
+        .withCapAdd(Capability.SYS_ADMIN)
+        .withCapAdd(Capability.NET_ADMIN)
+        .withBinds(binds)
+
+    coroutineScope {
+        proxies.map {
+            async(Dispatchers.IO) {
+                it.createContainers(
+                    containersInfo[it.shortHost]!!,
+                    config.imageTag,
+                    hostConfig,
+                    config.networkName,
+                    volumes,
+                    config.latencyFile,
+                    config.nContainers
+                )
+            }
+        }.joinAll()
+    }
+
 
 }
 

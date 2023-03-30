@@ -1,8 +1,6 @@
 import com.github.dockerjava.api.DockerClient
 import com.github.dockerjava.api.exception.DockerException
-import com.github.dockerjava.api.model.Network
-import com.github.dockerjava.api.model.SwarmJoinTokens
-import com.github.dockerjava.api.model.SwarmSpec
+import com.github.dockerjava.api.model.*
 import com.github.dockerjava.core.DefaultDockerClientConfig
 import com.github.dockerjava.core.DockerClientImpl
 import com.github.dockerjava.httpclient5.ApacheDockerHttpClient
@@ -33,12 +31,12 @@ class DockerProxy(private val host: String) {
 
     fun removeAllContainers() {
         val containers = client.listContainersCmd().exec()
-        println("Removing ${containers.size} containers on $shortHost in thread ${Thread.currentThread().name}")
+        println("Removing ${containers.size} containers on $shortHost")
         containers.forEach { client.removeContainerCmd(it.id).withForce(true).exec() }
     }
 
     fun leaveSwarm() {
-        println("Leaving swarm on $shortHost in thread ${Thread.currentThread().name}")
+        println("Leaving swarm on $shortHost")
         try {
             client.leaveSwarmCmd().withForceEnabled(true).exec()
         } catch (e: DockerException) {
@@ -56,7 +54,7 @@ class DockerProxy(private val host: String) {
     }
 
     fun joinSwarm(tokens: SwarmJoinTokens, leader: String) {
-        client.joinSwarmCmd().withRemoteAddrs(listOf(leader)) .withJoinToken(tokens.worker).exec()
+        client.joinSwarmCmd().withRemoteAddrs(listOf(leader)).withJoinToken(tokens.worker).exec()
         println("Joined swarm on $shortHost")
     }
 
@@ -64,26 +62,71 @@ class DockerProxy(private val host: String) {
         return client.listSwarmNodesCmd().exec().map { it.description!!.hostname!! }
     }
 
-    fun listNetworks() : List<String> {
+    fun listNetworks(): List<String> {
         return client.listNetworksCmd().exec().map { it.name }
     }
 
     fun createOverlayNetwork(name: String, subnet: String, gateway: String) {
-        client.createNetworkCmd().withName(name)
-            .withDriver("overlay")
-            .withIpam(Network.Ipam()
-                    .withDriver("default")
-                    .withConfig(
-                        listOf(
-                            IpamConfig()
-                                .withSubnet(subnet)
-                                .withGateway(gateway)
-                        )
-                    )
-            )
-            .exec()
+        val ipam = Network.Ipam().withConfig(
+            Network.Ipam.Config().withSubnet(subnet).withGateway(gateway)
+        )
+
+        client.createNetworkCmd()
+            .withName(name)
+            .withIpam(ipam)
+            .withAttachable(true)
+            .withDriver("overlay").exec()
     }
 
+    fun loadImage(imageLoc: String) {
+        println("Loading image $imageLoc on $shortHost")
+        client.loadImageCmd(java.io.File(imageLoc).inputStream()).exec()
+    }
+
+    fun createContainers(
+        pairs: MutableList<Pair<String, String>>,
+        imageTag: String,
+        hostConfig: HostConfig,
+        networkName: String,
+        volumes: Volumes,
+        latencyFile: String,
+        nContainers: Int,
+    ) {
+        println("Creating ${pairs.size} containers on $shortHost")
+        pairs.forEach { (number, ip) ->
+            createContainer(number, ip, imageTag, hostConfig, networkName, volumes, latencyFile, nContainers)
+        }
+    }
+
+    private fun createContainer(
+        id: String,
+        ip: String,
+        image: String,
+        hostConfig: HostConfig,
+        network: String,
+        volumes: Volumes,
+        latencyFile: String,
+        nContainers: Int,
+    ) {
+        println("Creating container $id on $shortHost")
+        val name = "node-$id"
+
+        val cId = client.createContainerCmd(image)
+            .withName(name)
+            .withHostName(name)
+            .withTty(true)
+            .withAttachStderr(false)
+            .withAttachStdout(false)
+            .withAttachStdin(false)
+            .withHostConfig(hostConfig)
+            .withVolumes(volumes.volumes.toList())
+            .withCmd(id, latencyFile, nContainers.toString())
+            .withIpv4Address(ip)
+            .exec()
+
+        client.startContainerCmd(cId.id).exec()
+
+    }
 
     fun close() {
         client.close()
@@ -94,7 +137,7 @@ class DockerProxy(private val host: String) {
         suspend fun gridInstallDockerParallel(hosts: List<String>) = coroutineScope {
             val jobs = hosts.map { host ->
                 async(Dispatchers.IO) {
-                    println("Installing g5k on $host in thread ${Thread.currentThread().name}")
+                    println("Installing g5k on $host")
                     val process = Runtime.getRuntime()
                         .exec(arrayOf("oarsh", "-n", host, "sudo-g5k edge/exps/g5k-setup-docker"))
 
