@@ -12,7 +12,7 @@ import java.net.InetAddress
 import java.nio.file.Files
 import java.nio.file.Paths
 
-fun main(args: Array<String>) = runBlocking {
+fun main(args: Array<String>): Unit = runBlocking {
 
 
     val command = args[0]
@@ -24,10 +24,8 @@ fun main(args: Array<String>) = runBlocking {
     val hosts = mutableListOf<String>()
     File(oarNodeFile).forEachLine { if (!hosts.contains(it)) hosts.add(it) }
     val me = InetAddress.getLocalHost().hostName
-    if (hosts.contains(me))
-        hosts.remove(me)
-    else
-        throw IllegalStateException("Hostname $me not found in OAR_NODE_FILE")
+    if (hosts.contains(me)) hosts.remove(me)
+    else throw IllegalStateException("Hostname $me not found in OAR_NODE_FILE")
 
     println("I am $me")
     println("Hosts are: $hosts")
@@ -46,23 +44,20 @@ fun main(args: Array<String>) = runBlocking {
 
 }
 
-suspend fun setup(hosts: List<String>, arguments: Map<String, String>) {
+suspend fun setup(hosts: List<String>, arguments: Map<String, String>): List<DockerProxy> {
 
     if (!arguments.containsKey("config_file")) throw IllegalArgumentException("Missing argument: config_file")
     println("Parsing configuration file ${arguments["config_file"]}")
 
     val config = Yaml.default.decodeFromStream<Config>(FileInputStream(arguments["config_file"]!!)).setup
 
-    if (hosts.size * config.maxContainersPerMachine < config.nContainers)
-        throw IllegalStateException(
-            "Not enough hosts to run ${config.nContainers} containers, with a maximum of " +
-                    "${config.maxContainersPerMachine} containers per node"
-        )
+    if (hosts.size * config.maxContainersPerMachine < config.nContainers) throw IllegalStateException(
+        "Not enough hosts to run ${config.nContainers} containers, with a maximum of " + "${config.maxContainersPerMachine} containers per node"
+    )
 
 
     val nLinesTc = Files.lines(Paths.get(config.tcFolder, config.latencyFile)).count()
-    if (nLinesTc < config.nContainers)
-        throw IllegalStateException("Not enough lines in ${config.latencyFile} to run ${config.nContainers} nodes")
+    if (nLinesTc < config.nContainers) throw IllegalStateException("Not enough lines in ${config.latencyFile} to run ${config.nContainers} nodes")
 
     println("--- Checking docker status...")
 
@@ -76,8 +71,7 @@ suspend fun setup(hosts: List<String>, arguments: Map<String, String>) {
             println("--- Docker is not running on ${hosts[0]}, will try to install on all hosts")
             Thread.sleep(3000)
             DockerProxy.gridInstallDockerParallel(hosts)
-        } else
-            throw e
+        } else throw e
     }
 
     println("--- Creating clients")
@@ -88,8 +82,7 @@ suspend fun setup(hosts: List<String>, arguments: Map<String, String>) {
     println("--- Setting up swarm and network")
     val tokens = proxies[0].initSwarm()
     proxies.drop(1).forEach { it.joinSwarm(tokens, proxies[0].shortHost) }
-    if (proxies[0].getSwarmMembers().size != proxies.size)
-        throw IllegalStateException("Swarm members are not equal to the number of hosts")
+    if (proxies[0].getSwarmMembers().size != proxies.size) throw IllegalStateException("Swarm members are not equal to the number of hosts")
 
     val networks = proxies[0].listNetworks()
     if (networks.contains(config.networkName)) {
@@ -133,13 +126,8 @@ suspend fun setup(hosts: List<String>, arguments: Map<String, String>) {
         Bind(config.tcFolder, tcVol, AccessMode.ro),
         Bind(config.codeFolder, codeVol, AccessMode.ro)
     )
-    val hostConfig = HostConfig()
-        .withAutoRemove(true)
-        .withPrivileged(true)
-        .withCapAdd(Capability.SYS_ADMIN)
-        .withCapAdd(Capability.NET_ADMIN)
-        .withBinds(binds)
-        .withNetworkMode(config.networkName)
+    val hostConfig = HostConfig().withAutoRemove(true).withPrivileged(true).withCapAdd(Capability.SYS_ADMIN)
+        .withCapAdd(Capability.NET_ADMIN).withBinds(binds).withNetworkMode(config.networkName)
 
     val createdChannel: Channel<String> = Channel(config.nContainers)
     coroutineScope {
@@ -147,8 +135,13 @@ suspend fun setup(hosts: List<String>, arguments: Map<String, String>) {
             proxies.map {
                 async(Dispatchers.IO) {
                     it.createContainers(
-                        containersInfo[it.shortHost]!!, config.imageTag, hostConfig,
-                        volumes, config.latencyFile, config.nContainers, createdChannel
+                        containersInfo[it.shortHost]!!,
+                        config.imageTag,
+                        hostConfig,
+                        volumes,
+                        config.latencyFile,
+                        config.nContainers,
+                        createdChannel
                     )
                 }
             }.joinAll()
@@ -164,10 +157,56 @@ suspend fun setup(hosts: List<String>, arguments: Map<String, String>) {
 
     println("--- Containers created")
 
+    return proxies
+}
+
+suspend fun run(hosts: List<String>, arguments: Map<String, String>) {
+    val proxies = if (arguments.containsKey("setup")) setup(hosts, arguments)
+    else {
+        println("--- Creating clients")
+        hosts.map { DockerProxy(it) }
+    }
+
+    val runStart = System.currentTimeMillis()
+
+    if (!arguments.containsKey("config_file")) throw IllegalArgumentException("Missing argument: config_file")
+    println("--- Parsing configuration file ${arguments["config_file"]}")
+
+    val expConfig = Yaml.default.decodeFromStream<Config>(FileInputStream(arguments["config_file"]!!)).exps
+
+    println("--- Getting existing containers")
+    val containers = proxies.flatMap { it.listContainers() }.sortedBy { it.container.names[0].split("-")[1].toInt() }
+    println("Found ${containers.size} containers")
+
+    expConfig.forEach { exp ->
+        if (exp.skip) {
+            println("Skipping ${exp.name}")
+            return@forEach
+        }
+
+        println("--- Starting experiment ${exp.name}")
+        val expStart = System.currentTimeMillis()
+
+        when (exp.type) {
+            "basic" -> runBasicExp(exp, containers)
+            "dying" -> runDyingExp(exp, containers)
+            else -> throw IllegalArgumentException("Unknown experiment type ${exp.type}")
+        }
+
+        val expEnd = System.currentTimeMillis()
+        println("--- Experiment ${exp.name} completed in ${(expEnd - expStart) / 1000}s. Total so far ${(expEnd - runStart) / 1000}")
+    }
+}
+
+fun runBasicExp(exp: Exp, containers: List<DockerProxy.ContainerProxy>) {
 
 }
 
-fun run(hosts: List<String>, arguments: Map<String, String>) {
+fun runDyingExp(exp: Exp, containers: List<DockerProxy.ContainerProxy>) {
+    TODO("Not yet implemented")
+}
+
+fun interrupt(hosts: List<String>) {
 
 }
 
@@ -197,12 +236,12 @@ fun parseArguments(args: Array<String>): Map<String, String> {
         if (arg.startsWith("--")) {
             val key = arg.substring(2)
             val value = if (i + 1 < args.size && !args[i + 1].startsWith("--")) {
-                args[i + 1]
+                i++
+                args[i]
             } else {
-                throw IllegalArgumentException("Missing value for argument: $arg")
+                ""
             }
             params[key] = value
-            i++
         } else {
             throw IllegalArgumentException("Unexpected argument: $arg")
         }

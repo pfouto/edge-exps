@@ -20,7 +20,7 @@ setup:
 exps:
   - name: "regular" #name of the exp
     type: "basic"
-    skip: true
+    skip: false
     nodes:
       as: 10
       eu: 10

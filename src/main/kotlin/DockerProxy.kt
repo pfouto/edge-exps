@@ -114,9 +114,15 @@ class DockerProxy(private val host: String) {
         channel.send(cId.id)
     }
 
+    fun listContainers(): List<ContainerProxy> {
+        return client.listContainersCmd().exec().map { ContainerProxy(it, this) }
+    }
+
+
     fun close() {
         client.close()
     }
+
 
     companion object {
         suspend fun gridInstallDockerParallel(hosts: List<String>) = coroutineScope {
@@ -156,4 +162,7 @@ class DockerProxy(private val host: String) {
         }
 
     }
+
+    data class ContainerProxy(val container: Container, val proxy: DockerProxy)
 }
+

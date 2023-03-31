@@ -25,7 +25,7 @@ data class Setup (
 data class Exp(
     val name: String,
     val type: String,
-    val skip: Boolean,
+    val skip: Boolean = false,
     val nodes: Map<String, Int>,
     val steps: List<Step>? = null,
     val duration: String? = null
