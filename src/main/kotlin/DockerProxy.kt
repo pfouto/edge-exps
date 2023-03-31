@@ -1,4 +1,6 @@
 import com.github.dockerjava.api.DockerClient
+import com.github.dockerjava.api.async.ResultCallback
+import com.github.dockerjava.api.command.InspectContainerResponse
 import com.github.dockerjava.api.exception.DockerException
 import com.github.dockerjava.api.model.*
 import com.github.dockerjava.core.DefaultDockerClientConfig
@@ -115,7 +117,21 @@ class DockerProxy(private val host: String) {
     }
 
     fun listContainers(): List<ContainerProxy> {
-        return client.listContainersCmd().exec().map { ContainerProxy(it, this) }
+        val cList = client.listContainersCmd().exec()
+        val detailedList = cList.map { client.inspectContainerCmd(it.id).exec() }
+        return detailedList.map { ContainerProxy(it, this) }
+
+    }
+
+    fun executeCommand(cId: String, cmd: Array<String>) {
+        val create = client.execCreateCmd(cId).withCmd(*cmd).withWorkingDir("/code").exec()
+        val exec = client.execStartCmd(create.id).withDetach(true)
+            .exec(object : ResultCallback.Adapter<Frame>() {
+                override fun onNext(item: Frame?) {
+                    println(item?.toString())
+                }
+            })
+        exec.awaitCompletion()
     }
 
 
@@ -163,6 +179,6 @@ class DockerProxy(private val host: String) {
 
     }
 
-    data class ContainerProxy(val container: Container, val proxy: DockerProxy)
+    data class ContainerProxy(val inspect: InspectContainerResponse, val proxy: DockerProxy)
 }
 

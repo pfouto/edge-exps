@@ -12,8 +12,10 @@ import java.net.InetAddress
 import java.nio.file.Files
 import java.nio.file.Paths
 
-fun main(args: Array<String>): Unit = runBlocking {
+var uid: Int = -1
+var gid: Int = -1
 
+fun main(args: Array<String>): Unit = runBlocking {
 
     val command = args[0]
     val arguments = parseArguments(args)
@@ -31,14 +33,15 @@ fun main(args: Array<String>): Unit = runBlocking {
     println("Hosts are: $hosts")
 
     val currentDir = Paths.get(System.getProperty("user.dir"))
-    val uid = Files.getAttribute(currentDir, "unix:uid") as Int
-    val gid = Files.getAttribute(currentDir, "unix:gid") as Int
+    uid = Files.getAttribute(currentDir, "unix:uid") as Int
+    gid = Files.getAttribute(currentDir, "unix:gid") as Int
     //println("$uid $gid")
 
     when (command) {
         "setup" -> setup(hosts, arguments)
         "run" -> run(hosts, arguments)
         "purge" -> purge(hosts)
+        "interrupt" -> interrupt(hosts)
         else -> throw IllegalArgumentException("Unknown command: $command")
     }
 
@@ -54,7 +57,6 @@ suspend fun setup(hosts: List<String>, arguments: Map<String, String>): List<Doc
     if (hosts.size * config.maxContainersPerMachine < config.nContainers) throw IllegalStateException(
         "Not enough hosts to run ${config.nContainers} containers, with a maximum of " + "${config.maxContainersPerMachine} containers per node"
     )
-
 
     val nLinesTc = Files.lines(Paths.get(config.tcFolder, config.latencyFile)).count()
     if (nLinesTc < config.nContainers) throw IllegalStateException("Not enough lines in ${config.latencyFile} to run ${config.nContainers} nodes")
@@ -175,7 +177,7 @@ suspend fun run(hosts: List<String>, arguments: Map<String, String>) {
     val expConfig = Yaml.default.decodeFromStream<Config>(FileInputStream(arguments["config_file"]!!)).exps
 
     println("--- Getting existing containers")
-    val containers = proxies.flatMap { it.listContainers() }.sortedBy { it.container.names[0].split("-")[1].toInt() }
+    val containers = proxies.flatMap { it.listContainers() }.sortedBy { it.inspect.name.split("-")[1].toInt() }
     println("Found ${containers.size} containers")
 
     expConfig.forEach { exp ->
@@ -194,19 +196,119 @@ suspend fun run(hosts: List<String>, arguments: Map<String, String>) {
         }
 
         val expEnd = System.currentTimeMillis()
-        println("--- Experiment ${exp.name} completed in ${(expEnd - expStart) / 1000}s. Total so far ${(expEnd - runStart) / 1000}")
+        println("--- Experiment ${exp.name} completed in ${(expEnd - expStart) / 1000}s. Total so far ${(expEnd - runStart) / 1000}s")
     }
 }
 
-fun runBasicExp(exp: Exp, containers: List<DockerProxy.ContainerProxy>) {
+suspend fun runBasicExp(exp: Exp, containers: List<DockerProxy.ContainerProxy>) {
+    val neededContainers = exp.nodes.values.sum()
+    if (containers.size < neededContainers)
+        throw IllegalStateException("Not enough containers to run experiment, found ${containers.size} but need $neededContainers")
+
+    print("Starting processes... ")
+    val runningContainers = mutableListOf<DockerProxy.ContainerProxy>()
+    coroutineScope {
+        var index = 0
+        for ((region, nodes) in exp.nodes) {
+            val regionalDc = containers[index].inspect.config.hostName!!
+            repeat(nodes) {
+                val container = containers[index]
+                val cmd = arrayOf(
+                    "./start.sh", exp.name, container.inspect.config.hostName!!, region,
+                    regionalDc, uid.toString(), gid.toString()
+                )
+                launch(Dispatchers.IO) {
+                    container.proxy.executeCommand(container.inspect.id, cmd)
+                }
+                runningContainers.add(container)
+                index++
+            }
+        }
+    }
+    println("done.")
+
+    sleep(exp.duration!! * 1000L)
+
+    print("Stopping processes... ")
+    coroutineScope {
+        runningContainers.forEach {
+            launch(Dispatchers.IO) { it.proxy.executeCommand(it.inspect.id, arrayOf("killall", "java")) }
+        }
+    }
+    println("done.")
 
 }
 
-fun runDyingExp(exp: Exp, containers: List<DockerProxy.ContainerProxy>) {
-    TODO("Not yet implemented")
+suspend fun runDyingExp(exp: Exp, containers: List<DockerProxy.ContainerProxy>) {
+    val neededContainers = exp.nodes.values.sum()
+    if (containers.size < neededContainers)
+        throw IllegalStateException("Not enough containers to run experiment, found ${containers.size} but need $neededContainers")
+
+    print("Starting processes... ")
+    val runningContainers = mutableListOf<DockerProxy.ContainerProxy>()
+    val runningContainersPerRegion = mutableMapOf<String, MutableList<DockerProxy.ContainerProxy>>()
+    coroutineScope {
+        var index = 0
+        for ((region, nodes) in exp.nodes) {
+            runningContainersPerRegion[region] = mutableListOf()
+            val regionalDc = containers[index].inspect.config.hostName!!
+            repeat(nodes) {
+                val container = containers[index]
+                val cmd = arrayOf(
+                    "./start.sh", exp.name, container.inspect.config.hostName!!, region,
+                    regionalDc, uid.toString(), gid.toString()
+                )
+                launch(Dispatchers.IO) {
+                    container.proxy.executeCommand(container.inspect.id, cmd)
+                }
+                runningContainersPerRegion[region]!!.add(container)
+                runningContainers.add(container)
+                index++
+            }
+        }
+    }
+    println("done.")
+
+    for (step in exp.steps){
+        println("Next step: $step")
+        sleep(step.delay * 1000L)
+        if(step.kill != null){
+            coroutineScope {
+                println("Killing nodes")
+                for (region in step.kill) {
+                    for (node in region.value) {
+                        val container = runningContainersPerRegion[region.key]!![node]
+                        runningContainers.remove(container)
+                        launch(Dispatchers.IO) {
+                            container.proxy.executeCommand(container.inspect.id, arrayOf("killall", "java"))
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    print("Stopping processes... ")
+    coroutineScope {
+        runningContainers.forEach {
+            launch(Dispatchers.IO) { it.proxy.executeCommand(it.inspect.id, arrayOf("killall", "java")) }
+        }
+    }
+    println("done.")
 }
 
-fun interrupt(hosts: List<String>) {
+suspend fun interrupt(hosts: List<String>) {
+    println("--- Creating clients")
+    val proxies = hosts.map { DockerProxy(it) }
+    println("--- Getting existing containers")
+    val containers = proxies.flatMap { it.listContainers() }.sortedBy { it.inspect.name.split("-")[1].toInt() }
+    println("Found ${containers.size} containers")
+    println("--- Stopping processes")
+    coroutineScope {
+        containers.forEach {
+            launch(Dispatchers.IO) { it.proxy.executeCommand(it.inspect.id, arrayOf("killall", "java")) }
+        }
+    }
 
 }
 
@@ -248,4 +350,16 @@ fun parseArguments(args: Array<String>): Map<String, String> {
         i++
     }
     return params
+}
+
+private fun sleep(durationMs: Long) {
+    val startMs = System.currentTimeMillis()
+    while (System.currentTimeMillis() - startMs < durationMs) {
+        val elapsedMs = System.currentTimeMillis() - startMs
+        Thread.sleep(200L.coerceAtMost(durationMs - elapsedMs))
+        print("                                             \r")
+        print("Sleeping for ${durationMs / 1000}: ${(durationMs - elapsedMs) / 1000}\r")
+    }
+    print("                                             \r")
+    println("Slept for ${durationMs / 1000} seconds")
 }

@@ -20,14 +20,14 @@ setup:
 exps:
   - name: "regular" #name of the exp
     type: "basic"
-    skip: false
+    skip: true
     nodes:
       as: 10
       eu: 10
       na: 10
       oce: 10
       sa: 10
-    duration: 120s #duration of the experiment
+    duration: 60 #duration of the experiment
 
   - name: "dying" #name of the exp
     type: "dying"
@@ -40,17 +40,17 @@ exps:
       sa: 10
 
     steps:
-      - delay: 60s
+      - delay: 40
         kill:
           as: [2,4,6]
           eu: [3,5,7]
           na: [4, 8, 9]
-      - delay: 20s
+      - delay: 15
         kill:
           oce: [2]
           sa: [3]
           na: [1]
-      - delay: 20s
+      - delay: 15
 
   - name: "dying_single" #name of the exp
     type: "dying"
@@ -59,10 +59,10 @@ exps:
       eu: 50
 
     steps:
-      - delay: 60s
+      - delay: 40
         kill:
           eu: [3,5,7, 12, 15, 25, 30, 35, 40, 45]
-      - delay: 20s
+      - delay: 20
         kill:
           eu: [1, 8, 10, 18, 22, 28, 32, 38, 42, 48]
-      - delay: 20s
+      - delay: 20

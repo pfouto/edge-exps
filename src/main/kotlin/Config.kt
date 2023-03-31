@@ -27,12 +27,12 @@ data class Exp(
     val type: String,
     val skip: Boolean = false,
     val nodes: Map<String, Int>,
-    val steps: List<Step>? = null,
-    val duration: String? = null
+    val steps: List<Step> = emptyList(),
+    val duration: Int? = null
 )
 
 @Serializable
 data class Step(
-    val delay: String,
+    val delay: Int,
     val kill: Map<String, List<Int>>? = null
 )
