@@ -3,12 +3,12 @@ setup:
 
   nContainers: 50
   maxContainersPerMachine: 50
-  imageLoc: "/home/pfouto/edge/exp_management/docker/tc.tar"
+  imageLoc: "/home/pfouto/edge/exps/docker/tc.tar"
   imageTag: "tc:0.1"
 
   logsFolder: "/home/pfouto/edge/logs"
   codeFolder: "/home/pfouto/edge/deploy"
-  tcFolder: "/home/pfouto/edge/exp_management/tc"
+  tcFolder: "/home/pfouto/edge/exps/tc"
 
   latencyFile: "latencies100_small.txt"
 
@@ -31,7 +31,7 @@ exps:
 
   - name: "dying" #name of the exp
     type: "dying"
-    skip: true
+    skip: false
     nodes:
       as: 10
       eu: 10
@@ -54,7 +54,7 @@ exps:
 
   - name: "dying_single" #name of the exp
     type: "dying"
-    skip: false
+    skip: true
     nodes:
       eu: 50
 
