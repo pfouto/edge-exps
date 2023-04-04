@@ -11,11 +11,14 @@ import kotlinx.coroutines.channels.Channel
 import java.io.BufferedReader
 import java.io.InputStreamReader
 import java.lang.IllegalStateException
+import java.util.*
 
 class DockerProxy(private val host: String) {
 
     private val client: DockerClient
     val shortHost: String = host.split(".").first()
+
+    val runningCmds = Collections.synchronizedList(mutableListOf<String>())
 
     init {
         val dockerClientConfig = DefaultDockerClientConfig.createDefaultConfigBuilder()
@@ -123,7 +126,7 @@ class DockerProxy(private val host: String) {
 
     }
 
-    fun executeCommand(cId: String, cmd: Array<String>) {
+    fun executeCommand(cId: String, cmd: Array<String>): String {
         val create = client.execCreateCmd(cId).withCmd(*cmd).withWorkingDir("/code").exec()
         val exec = client.execStartCmd(create.id).withDetach(true)
             .exec(object : ResultCallback.Adapter<Frame>() {
@@ -132,8 +135,18 @@ class DockerProxy(private val host: String) {
                 }
             })
         exec.awaitCompletion()
+        runningCmds.add(create.id)
+        return create.id
     }
 
+    fun waitAllRunningCmds() {
+        while(runningCmds.isNotEmpty()) {
+            runningCmds.removeIf {
+                !client.inspectExecCmd(it).exec().isRunning
+            }
+            Thread.sleep(500)
+        }
+    }
 
     fun close() {
         client.close()

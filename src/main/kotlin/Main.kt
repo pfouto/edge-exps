@@ -163,7 +163,12 @@ suspend fun setup(hosts: List<String>, arguments: Map<String, String>): List<Doc
 }
 
 suspend fun run(hosts: List<String>, arguments: Map<String, String>) {
-    val proxies = if (arguments.containsKey("setup")) setup(hosts, arguments)
+    val proxies = if (arguments.containsKey("setup")) {
+        val setup = setup(hosts, arguments)
+        println("--- Waiting 10 seconds for containers to start")
+        sleep(10000)
+        setup
+    }
     else {
         println("--- Creating clients")
         hosts.map { DockerProxy(it) }
@@ -229,13 +234,7 @@ suspend fun runBasicExp(exp: Exp, containers: List<DockerProxy.ContainerProxy>) 
 
     sleep(exp.duration!! * 1000L)
 
-    print("Stopping processes... ")
-    coroutineScope {
-        runningContainers.forEach {
-            launch(Dispatchers.IO) { it.proxy.executeCommand(it.inspect.id, arrayOf("killall", "java")) }
-        }
-    }
-    println("done.")
+    stopEverything(runningContainers)
 
 }
 
@@ -287,14 +286,28 @@ suspend fun runDyingExp(exp: Exp, containers: List<DockerProxy.ContainerProxy>) 
             }
         }
     }
+    stopEverything(runningContainers)
+}
 
+private suspend fun stopEverything(containers: List<DockerProxy.ContainerProxy>){
     print("Stopping processes... ")
     coroutineScope {
-        runningContainers.forEach {
-            launch(Dispatchers.IO) { it.proxy.executeCommand(it.inspect.id, arrayOf("killall", "java")) }
+        containers.forEach {
+            launch(Dispatchers.IO) {
+                it.proxy.executeCommand(it.inspect.id, arrayOf("killall", "java"))
+            }
+        }
+    }
+    print("waiting for processes to stop... ")
+    coroutineScope {
+        containers.distinctBy { it.proxy }.forEach {
+            launch(Dispatchers.IO) {
+                it.proxy.waitAllRunningCmds()
+            }
         }
     }
     println("done.")
+
 }
 
 suspend fun interrupt(hosts: List<String>) {
