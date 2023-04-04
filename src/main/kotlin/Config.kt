@@ -28,7 +28,8 @@ data class Exp(
     val skip: Boolean = false,
     val nodes: Map<String, Int>,
     val steps: List<Step> = emptyList(),
-    val duration: Int? = null
+    val duration: Int? = null,
+    val staticTree : String? = null
 )
 
 @Serializable

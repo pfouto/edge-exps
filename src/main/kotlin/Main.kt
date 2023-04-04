@@ -168,8 +168,7 @@ suspend fun run(hosts: List<String>, arguments: Map<String, String>) {
         println("--- Waiting 10 seconds for containers to start")
         sleep(10000)
         setup
-    }
-    else {
+    } else {
         println("--- Creating clients")
         hosts.map { DockerProxy(it) }
     }
@@ -210,31 +209,15 @@ suspend fun runBasicExp(exp: Exp, containers: List<DockerProxy.ContainerProxy>) 
     if (containers.size < neededContainers)
         throw IllegalStateException("Not enough containers to run experiment, found ${containers.size} but need $neededContainers")
 
-    print("Starting processes... ")
     val runningContainers = mutableListOf<DockerProxy.ContainerProxy>()
-    coroutineScope {
-        var index = 0
-        for ((region, nodes) in exp.nodes) {
-            val regionalDc = containers[index].inspect.config.hostName!!
-            repeat(nodes) {
-                val container = containers[index]
-                val cmd = arrayOf(
-                    "./start.sh", exp.name, container.inspect.config.hostName!!, region,
-                    regionalDc, uid.toString(), gid.toString()
-                )
-                launch(Dispatchers.IO) {
-                    container.proxy.executeCommand(container.inspect.id, cmd)
-                }
-                runningContainers.add(container)
-                index++
-            }
-        }
-    }
-    println("done.")
+    startAllProcesses(exp, containers, runningContainers, null)
 
     sleep(exp.duration!! * 1000L)
 
     stopEverything(runningContainers)
+
+    println("Changing ownership")
+    containers[0].proxy.executeCommand(containers[0].inspect.id, arrayOf("chown", "-R", "$uid:$gid", "/logs/${exp.name}/"))
 
 }
 
@@ -243,35 +226,14 @@ suspend fun runDyingExp(exp: Exp, containers: List<DockerProxy.ContainerProxy>) 
     if (containers.size < neededContainers)
         throw IllegalStateException("Not enough containers to run experiment, found ${containers.size} but need $neededContainers")
 
-    print("Starting processes... ")
     val runningContainers = mutableListOf<DockerProxy.ContainerProxy>()
     val runningContainersPerRegion = mutableMapOf<String, MutableList<DockerProxy.ContainerProxy>>()
-    coroutineScope {
-        var index = 0
-        for ((region, nodes) in exp.nodes) {
-            runningContainersPerRegion[region] = mutableListOf()
-            val regionalDc = containers[index].inspect.config.hostName!!
-            repeat(nodes) {
-                val container = containers[index]
-                val cmd = arrayOf(
-                    "./start.sh", exp.name, container.inspect.config.hostName!!, region,
-                    regionalDc, uid.toString(), gid.toString()
-                )
-                launch(Dispatchers.IO) {
-                    container.proxy.executeCommand(container.inspect.id, cmd)
-                }
-                runningContainersPerRegion[region]!!.add(container)
-                runningContainers.add(container)
-                index++
-            }
-        }
-    }
-    println("done.")
+    startAllProcesses(exp, containers, runningContainers, runningContainersPerRegion)
 
-    for (step in exp.steps){
+    for (step in exp.steps) {
         println("Next step: $step")
         sleep(step.delay * 1000L)
-        if(step.kill != null){
+        if (step.kill != null) {
             coroutineScope {
                 println("Killing nodes")
                 for (region in step.kill) {
@@ -286,10 +248,49 @@ suspend fun runDyingExp(exp: Exp, containers: List<DockerProxy.ContainerProxy>) 
             }
         }
     }
+
     stopEverything(runningContainers)
 }
 
-private suspend fun stopEverything(containers: List<DockerProxy.ContainerProxy>){
+private suspend fun startAllProcesses(
+    exp: Exp,
+    containers: List<DockerProxy.ContainerProxy>,
+    runningContainers: MutableList<DockerProxy.ContainerProxy>,
+    runningContainersPerRegion: MutableMap<String, MutableList<DockerProxy.ContainerProxy>>?,
+) {
+    print("Starting processes... ")
+    coroutineScope {
+        var index = 0
+        for ((region, nodes) in exp.nodes) {
+            if (runningContainersPerRegion != null) runningContainersPerRegion[region] = mutableListOf()
+            val regionalDc = containers[index].inspect.config.hostName!!
+            repeat(nodes) {
+                val container = containers[index]
+                val hostname = container.inspect.config.hostName!!
+                val cmd = mutableListOf(
+                    "./start.sh",
+                    "/logs/${exp.name}/$hostname.log",
+                    "hostname=$hostname",
+                    "region=$region",
+                    "datacenter=$regionalDc",
+                )
+                if (exp.staticTree != null) {
+                    cmd.add("tree_builder=Static")
+                    cmd.add("tree_location=${exp.staticTree}")
+                }
+                launch(Dispatchers.IO) {
+                    container.proxy.executeCommand(container.inspect.id, cmd.toTypedArray())
+                }
+                if (runningContainersPerRegion != null) runningContainersPerRegion[region]!!.add(container)
+                runningContainers.add(container)
+                index++
+            }
+        }
+    }
+    println("done.")
+}
+
+private suspend fun stopEverything(containers: List<DockerProxy.ContainerProxy>) {
     print("Stopping processes... ")
     coroutineScope {
         containers.forEach {

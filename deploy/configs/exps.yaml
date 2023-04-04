@@ -18,9 +18,17 @@ setup:
 
 ## exp information
 exps:
-  - name: "regular" #name of the exp
+  - name: "static_test" #name of the exp
     type: "basic"
     skip: false
+    nodes:
+      eu: 50
+    duration: 40 #duration of the experiment
+    staticTree: "tree/treegpt.yaml"
+
+  - name: "regular" #name of the exp
+    type: "basic"
+    skip: true
     nodes:
       as: 10
       eu: 10
@@ -31,7 +39,7 @@ exps:
 
   - name: "dying" #name of the exp
     type: "dying"
-    skip: false
+    skip: true
     nodes:
       as: 10
       eu: 10
@@ -54,7 +62,7 @@ exps:
 
   - name: "dying_single" #name of the exp
     type: "dying"
-    skip: false
+    skip: true
     nodes:
       eu: 50
 
