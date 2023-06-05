@@ -1,16 +1,19 @@
 ## setup information
 setup:
 
-  nContainers: 50
+  nContainers: 300
   maxContainersPerMachine: 50
   imageLoc: "/home/pfouto/edge/exps/docker/tc.tar"
   imageTag: "tc:0.1"
+
+  nodeLocationsFile: "/home/pfouto/edge/exps/configs/node_locations_300.txt"
 
   logsFolder: "/home/pfouto/edge/logs"
   codeFolder: "/home/pfouto/edge/deploy"
   tcFolder: "/home/pfouto/edge/exps/tc"
 
-  latencyFile: "latencies100_small.txt"
+
+  latencyFile: "latencies_300.txt"
 
   networkName: "edgenet"
   subnet: "10.10.0.0/16" #docker network ip range
@@ -22,9 +25,9 @@ exps:
     type: "basic"
     skip: false
     nodes:
-      eu: 50
-    duration: 40 #duration of the experiment
-    staticTree: "tree/treegpt.yaml"
+      eu: 300
+    duration: 70 #duration of the experiment
+    #staticTree: "tree/treegpt.yaml"
 
   - name: "regular" #name of the exp
     type: "basic"
@@ -63,6 +66,7 @@ exps:
   - name: "dying_single" #name of the exp
     type: "dying"
     skip: true
+    staticTree: "tree/treegpt.yaml"
     nodes:
       eu: 50
 

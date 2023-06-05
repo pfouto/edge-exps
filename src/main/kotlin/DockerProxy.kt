@@ -15,7 +15,7 @@ import java.util.*
 
 class DockerProxy(private val host: String) {
 
-    private val client: DockerClient
+    private var client: DockerClient
     val shortHost: String = host.split(".").first()
 
     val runningCmds = Collections.synchronizedList(mutableListOf<String>())
@@ -34,6 +34,22 @@ class DockerProxy(private val host: String) {
         client = DockerClientImpl.getInstance(dockerClientConfig, httpClient)
         client.pingCmd().exec()
         println("Created DockerProxy for $shortHost")
+    }
+
+    fun reconnect() {
+        val dockerClientConfig = DefaultDockerClientConfig.createDefaultConfigBuilder()
+            .withDockerHost("tcp://${host}:2376")
+            .withDockerTlsVerify(false)
+            .build()
+
+        val httpClient = ApacheDockerHttpClient.Builder()
+            .dockerHost(dockerClientConfig.dockerHost)
+            .sslConfig(dockerClientConfig.sslConfig)
+            .build()
+
+        client = DockerClientImpl.getInstance(dockerClientConfig, httpClient)
+        client.pingCmd().exec()
+        println("Re-created DockerProxy for $shortHost")
     }
 
     fun removeAllContainers() {
@@ -188,6 +204,42 @@ class DockerProxy(private val host: String) {
             val sum = jobs.awaitAll().sum()
             if (sum != 0)
                 throw IllegalStateException("Failed to install docker on all hosts")
+        }
+
+        suspend fun restartDockerService(hosts: List<String>) = coroutineScope {
+            val jobs = hosts.map { host ->
+                async(Dispatchers.IO) {
+                    println("Restarting docker on $host")
+                    val process = Runtime.getRuntime()
+                        .exec(arrayOf("ssh", "-n", host, "sudo systemctl restart docker"))
+
+                    val inputReader = BufferedReader(InputStreamReader(process.inputStream))
+                    val errorReader = BufferedReader(InputStreamReader(process.errorStream))
+
+
+                    val inputJob = launch {
+                        var line: String?
+                        while (inputReader.readLine().also { line = it } != null)
+                            println("[INPUT $host] $line")
+                    }
+
+                    val errorJob = launch {
+                        var line: String?
+                        while (errorReader.readLine().also { line = it } != null)
+                            println("[ERROR $host] $line")
+                    }
+
+                    inputJob.join() // wait for input job to finish
+                    errorJob.join() // wait for error job to finish
+
+                    process.waitFor()
+                    println("$host exit value is ${process.exitValue()}")
+                    process.exitValue()
+                }
+            }
+            val sum = jobs.awaitAll().sum()
+            if (sum != 0)
+                throw IllegalStateException("Failed to restart docker on all hosts")
         }
 
     }

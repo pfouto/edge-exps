@@ -81,6 +81,10 @@ suspend fun setup(hosts: List<String>, arguments: Map<String, String>): List<Doc
 
     purge(hosts, proxies)
 
+    DockerProxy.restartDockerService(hosts)
+
+    proxies.forEach { it.reconnect() }
+
     println("--- Setting up swarm and network")
     val tokens = proxies[0].initSwarm()
     proxies.drop(1).forEach { it.joinSwarm(tokens, proxies[0].shortHost) }
@@ -178,7 +182,10 @@ suspend fun run(hosts: List<String>, arguments: Map<String, String>) {
     if (!arguments.containsKey("config_file")) throw IllegalArgumentException("Missing argument: config_file")
     println("--- Parsing configuration file ${arguments["config_file"]}")
 
-    val expConfig = Yaml.default.decodeFromStream<Config>(FileInputStream(arguments["config_file"]!!)).exps
+    val config = Yaml.default.decodeFromStream<Config>(FileInputStream(arguments["config_file"]!!))
+    val expConfig = config.exps
+
+    val locationsMap = readLocationsMapFromFile(config.setup.nodeLocationsFile)
 
     println("--- Getting existing containers")
     val containers = proxies.flatMap { it.listContainers() }.sortedBy { it.inspect.name.split("-")[1].toInt() }
@@ -194,8 +201,8 @@ suspend fun run(hosts: List<String>, arguments: Map<String, String>) {
         val expStart = System.currentTimeMillis()
 
         when (exp.type) {
-            "basic" -> runBasicExp(exp, containers)
-            "dying" -> runDyingExp(exp, containers)
+            "basic" -> runBasicExp(exp, containers, locationsMap)
+            "dying" -> runDyingExp(exp, containers, locationsMap)
             else -> throw IllegalArgumentException("Unknown experiment type ${exp.type}")
         }
 
@@ -204,13 +211,31 @@ suspend fun run(hosts: List<String>, arguments: Map<String, String>) {
     }
 }
 
-suspend fun runBasicExp(exp: Exp, containers: List<DockerProxy.ContainerProxy>) {
+fun readLocationsMapFromFile(nodeLocationsFile: String): Map<Int, Pair<Double, Double>> {
+    //Open nodeLocationsFile and read line by line
+    val locationsMap = mutableMapOf<Int, Pair<Double, Double>>()
+    val lines = File(nodeLocationsFile).readLines()
+    lines.forEach {
+        val split = it.split("\\s+".toRegex())
+        val id = split[0].toInt()
+        val lat = split[1].toDouble()
+        val lon = split[2].toDouble()
+        locationsMap[id] = Pair(lat, lon)
+    }
+    return locationsMap
+}
+
+suspend fun runBasicExp(
+    exp: Exp,
+    containers: List<DockerProxy.ContainerProxy>,
+    locationsMap: Map<Int, Pair<Double, Double>>
+) {
     val neededContainers = exp.nodes.values.sum()
     if (containers.size < neededContainers)
         throw IllegalStateException("Not enough containers to run experiment, found ${containers.size} but need $neededContainers")
 
     val runningContainers = mutableListOf<DockerProxy.ContainerProxy>()
-    startAllProcesses(exp, containers, runningContainers, null)
+    startAllProcesses(exp, containers, runningContainers, null, locationsMap)
 
     sleep(exp.duration!! * 1000L)
 
@@ -221,14 +246,18 @@ suspend fun runBasicExp(exp: Exp, containers: List<DockerProxy.ContainerProxy>) 
 
 }
 
-suspend fun runDyingExp(exp: Exp, containers: List<DockerProxy.ContainerProxy>) {
+suspend fun runDyingExp(
+    exp: Exp,
+    containers: List<DockerProxy.ContainerProxy>,
+    locationsMap: Map<Int, Pair<Double, Double>>
+) {
     val neededContainers = exp.nodes.values.sum()
     if (containers.size < neededContainers)
         throw IllegalStateException("Not enough containers to run experiment, found ${containers.size} but need $neededContainers")
 
     val runningContainers = mutableListOf<DockerProxy.ContainerProxy>()
     val runningContainersPerRegion = mutableMapOf<String, MutableList<DockerProxy.ContainerProxy>>()
-    startAllProcesses(exp, containers, runningContainers, runningContainersPerRegion)
+    startAllProcesses(exp, containers, runningContainers, runningContainersPerRegion, locationsMap)
 
     for (step in exp.steps) {
         println("Next step: $step")
@@ -257,6 +286,7 @@ private suspend fun startAllProcesses(
     containers: List<DockerProxy.ContainerProxy>,
     runningContainers: MutableList<DockerProxy.ContainerProxy>,
     runningContainersPerRegion: MutableMap<String, MutableList<DockerProxy.ContainerProxy>>?,
+    locationsMap: Map<Int, Pair<Double, Double>>,
 ) {
     print("Starting processes... ")
     coroutineScope {
@@ -267,12 +297,15 @@ private suspend fun startAllProcesses(
             repeat(nodes) {
                 val container = containers[index]
                 val hostname = container.inspect.config.hostName!!
+                val location = locationsMap[hostname.split("-")[1].toInt()]!!
                 val cmd = mutableListOf(
                     "./start.sh",
                     "/logs/${exp.name}/$hostname.log",
                     "hostname=$hostname",
                     "region=$region",
                     "datacenter=$regionalDc",
+                    "location_x=${location.first}",
+                    "location_y=${location.second}"
                 )
                 if (exp.staticTree != null) {
                     cmd.add("tree_builder=Static")

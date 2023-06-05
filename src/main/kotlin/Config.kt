@@ -18,7 +18,8 @@ data class Setup (
     val latencyFile: String,
     val networkName: String,
     val subnet: String,
-    val gateway: String
+    val gateway: String,
+    val nodeLocationsFile: String
 )
 
 @Serializable
