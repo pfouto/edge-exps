@@ -5,7 +5,7 @@ echo "I am $1 and there are $3 nodes"
 idx=$1
 n_nodes=$3
 latencyMap="/tc/$2"
-ipsMap="tc/ips.txt"
+ipsMap="tc/serverIps.txt"
 
 #bandwith=$2
 

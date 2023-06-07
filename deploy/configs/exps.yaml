@@ -1,8 +1,14 @@
 ## setup information
 setup:
 
-  nContainers: 300
-  maxContainersPerMachine: 50
+  nNodes: 300
+  maxNodesPerMachine: 50
+  nodeMachines: "moltres"
+
+  nClients: 300
+  maxClientsPerMachine: 150
+  clientMachines: "lugia"
+
   imageLoc: "/home/pfouto/edge/exps/docker/tc.tar"
   imageTag: "tc:0.1"
 

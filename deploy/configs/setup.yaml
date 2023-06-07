@@ -1,0 +1,24 @@
+## setup information
+setup:
+
+  nNodes: 300
+  maxNodesPerMachine: 50
+  nodeMachines: "moltres"
+
+  nClients: 300
+  maxClientsPerMachine: 150
+  clientMachines: "lugia"
+
+  imageLoc: "/home/pfouto/edge/exps/docker/tc.tar"
+  imageTag: "tc:0.1"
+
+  logsFolder: "/home/pfouto/edge/logs"
+  codeFolder: "/home/pfouto/edge/deploy"
+  tcFolder: "/home/pfouto/edge/exps/tc"
+
+
+  latencyFile: "latencies_300.txt"
+
+  networkName: "edgenet"
+  subnet: "10.10.0.0/16" #docker network ip range
+  gateway: "10.10.0.1" #docker network gateway

@@ -1,0 +1,9 @@
+setupFile: "config/setup.yaml"
+exps:
+  - name: "perf" #name of the exp
+    type: "perf"
+    nodeLocationsFile: "/home/pfouto/edge/exps/configs/node_locations_300.txt"
+    skip: false
+    nodes: 50, 100, 300
+    duration: 70 #duration of the experiment
+    #staticTree: "tree/treegpt.yaml"

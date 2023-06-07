@@ -52,14 +52,22 @@ suspend fun setup(hosts: List<String>, arguments: Map<String, String>): List<Doc
     if (!arguments.containsKey("config_file")) throw IllegalArgumentException("Missing argument: config_file")
     println("Parsing configuration file ${arguments["config_file"]}")
 
-    val config = Yaml.default.decodeFromStream<Config>(FileInputStream(arguments["config_file"]!!)).setup
 
-    if (hosts.size * config.maxContainersPerMachine < config.nContainers) throw IllegalStateException(
-        "Not enough hosts to run ${config.nContainers} containers, with a maximum of " + "${config.maxContainersPerMachine} containers per node"
-    )
+    val setupFile = Yaml.default.decodeFromStream<ConfigExps>(FileInputStream(arguments["config_file"]!!)).setupFile
+    val config = Yaml.default.decodeFromStream<ConfigSetup>(FileInputStream(setupFile)).setup
+
+    val nodeMachines = hosts.filter { it.startsWith(config.nodeMachines) }
+    val clientMachines = hosts.filter { it.startsWith(config.clientMachines) }
+
+    if (nodeMachines.size * config.maxNodesPerMachine < config.nNodes)
+        throw IllegalStateException("Not enough machines to run ${config.nNodes} nodes on ${nodeMachines.size} machines with ${config.maxNodesPerMachine} nodes per machine")
+
+    if (clientMachines.size * config.maxClientsPerMachine < config.nClients)
+        throw IllegalStateException("Not enough machines to run ${config.nClients} clients on ${clientMachines.size} machines with ${config.maxClientsPerMachine} clients per machine")
 
     val nLinesTc = Files.lines(Paths.get(config.tcFolder, config.latencyFile)).count()
-    if (nLinesTc < config.nContainers) throw IllegalStateException("Not enough lines in ${config.latencyFile} to run ${config.nContainers} nodes")
+    if (nLinesTc < config.nNodes)
+        throw IllegalStateException("Not enough lines in ${config.latencyFile} to run ${config.nNodes} nodes")
 
     println("--- Checking docker status...")
 
@@ -77,13 +85,17 @@ suspend fun setup(hosts: List<String>, arguments: Map<String, String>): List<Doc
     }
 
     println("--- Creating clients")
-    val proxies = hosts.map { DockerProxy(it) }
+    val nodeProxies = nodeMachines.map { DockerProxy(it) }
+    val clientProxies = clientMachines.map { DockerProxy(it) }
+
+    val proxies = nodeProxies + clientProxies
 
     purge(hosts, proxies)
 
     DockerProxy.restartDockerService(hosts)
 
-    proxies.forEach { it.reconnect() }
+    nodeProxies.forEach { it.reconnect() }
+    clientProxies.forEach { it.reconnect() }
 
     println("--- Setting up swarm and network")
     val tokens = proxies[0].initSwarm()
@@ -112,7 +124,7 @@ suspend fun setup(hosts: List<String>, arguments: Map<String, String>): List<Doc
     val containersInfo = mutableMapOf<String, MutableList<Pair<String, String>>>()
     proxies.forEach { containersInfo[it.shortHost] = mutableListOf() }
 
-    val ips = File("tc/ips.txt").readLines()
+    val ips = File("tc/serverIps.txt").readLines()
 
     for (containerNumber in config.nContainers - 1 downTo 0) {
         val proxy = proxies[containerNumber % proxies.size]
@@ -182,10 +194,9 @@ suspend fun run(hosts: List<String>, arguments: Map<String, String>) {
     if (!arguments.containsKey("config_file")) throw IllegalArgumentException("Missing argument: config_file")
     println("--- Parsing configuration file ${arguments["config_file"]}")
 
-    val config = Yaml.default.decodeFromStream<Config>(FileInputStream(arguments["config_file"]!!))
-    val expConfig = config.exps
+    val expConfig = Yaml.default.decodeFromStream<Config>(FileInputStream(arguments["config_file"]!!)).exps
 
-    val locationsMap = readLocationsMapFromFile(config.setup.nodeLocationsFile)
+    val locationsMap = readLocationsMapFromFile(expConfig.nodeLocationsFile)
 
     println("--- Getting existing containers")
     val containers = proxies.flatMap { it.listContainers() }.sortedBy { it.inspect.name.split("-")[1].toInt() }
@@ -228,7 +239,7 @@ fun readLocationsMapFromFile(nodeLocationsFile: String): Map<Int, Pair<Double, D
 suspend fun runBasicExp(
     exp: Exp,
     containers: List<DockerProxy.ContainerProxy>,
-    locationsMap: Map<Int, Pair<Double, Double>>
+    locationsMap: Map<Int, Pair<Double, Double>>,
 ) {
     val neededContainers = exp.nodes.values.sum()
     if (containers.size < neededContainers)
@@ -242,14 +253,17 @@ suspend fun runBasicExp(
     stopEverything(runningContainers)
 
     println("Changing ownership")
-    containers[0].proxy.executeCommand(containers[0].inspect.id, arrayOf("chown", "-R", "$uid:$gid", "/logs/${exp.name}/"))
+    containers[0].proxy.executeCommand(
+        containers[0].inspect.id,
+        arrayOf("chown", "-R", "$uid:$gid", "/logs/${exp.name}/")
+    )
 
 }
 
 suspend fun runDyingExp(
     exp: Exp,
     containers: List<DockerProxy.ContainerProxy>,
-    locationsMap: Map<Int, Pair<Double, Double>>
+    locationsMap: Map<Int, Pair<Double, Double>>,
 ) {
     val neededContainers = exp.nodes.values.sum()
     if (containers.size < neededContainers)
