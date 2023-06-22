@@ -30,7 +30,7 @@ suspend fun runMicro(expYaml: YamlNode, proxies: Proxies, dockerConfig: DockerCo
                 throw Exception("Not enough nodes for experiment")
 
             expConfig.dataDistribution.forEach { dataDistribution ->
-                val logsPath = "/logs/${expConfig.name}/$tcConfigFile/$nNodes/$dataDistribution}"
+                val logsPath = "/logs/${expConfig.name}/$tcConfigFile/$nNodes/$dataDistribution"
 
                 println(
                     "--- Running experiment with $tcConfigFile, $nNodes nodes, " +
@@ -76,10 +76,11 @@ private suspend fun startAllNodes(
                 "region=eu",
                 "datacenter=$dc",
                 "location_x=${location.first}",
-                "location_y=${location.second}"
+                "location_y=${location.second}",
+                "tree_builder_nnodes=${nodes.size}",
             )
             launch(Dispatchers.IO) {
-                container.proxy.executeCommand(container.inspect.id, cmd.toTypedArray())
+                container.proxy.executeCommand(container.inspect.id, cmd.toTypedArray(), "/server")
             }
             index++
         }

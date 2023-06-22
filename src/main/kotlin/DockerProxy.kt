@@ -169,9 +169,9 @@ class DockerProxy(private val host: String) {
 
     }
 
-    fun executeCommand(cId: String, cmd: Array<String>): String {
+    fun executeCommand(cId: String, cmd: Array<String>, workDir: String = "/"): String {
 
-        val create = client.execCreateCmd(cId).withCmd(*cmd).withWorkingDir("/code").exec()
+        val create = client.execCreateCmd(cId).withCmd(*cmd).withWorkingDir(workDir).exec()
         val exec = client.execStartCmd(create.id).withDetach(true)
             .exec(object : ResultCallback.Adapter<Frame>() {
                 override fun onNext(item: Frame?) {
@@ -185,9 +185,16 @@ class DockerProxy(private val host: String) {
 
     fun waitAllRunningCmds() {
         while (runningCmds.isNotEmpty()) {
-            runningCmds.removeIf {
-                !client.inspectExecCmd(it).exec().isRunning
-            }
+                runningCmds.removeIf {
+                    try{
+                        !client.inspectExecCmd(it).exec().isRunning
+                    } catch (e: DockerException) {
+                        if(e.httpStatus == 404)
+                            true
+                        else
+                            throw e
+                    }
+                }
             Thread.sleep(500)
         }
     }
