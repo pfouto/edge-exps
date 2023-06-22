@@ -1,13 +1,10 @@
-import com.charleskorn.kaml.Yaml
-import com.charleskorn.kaml.decodeFromStream
-import com.github.dockerjava.api.model.*
+import com.charleskorn.kaml.*
 import kotlinx.coroutines.*
-import kotlinx.coroutines.channels.Channel
 import org.apache.commons.lang3.exception.ExceptionUtils
 import org.apache.hc.client5.http.HttpHostConnectException
+import utils.DockerConfig
 import java.io.File
 import java.io.FileInputStream
-import java.lang.IllegalStateException
 import java.net.InetAddress
 import java.nio.file.Files
 import java.nio.file.Paths
@@ -38,187 +35,117 @@ fun main(args: Array<String>): Unit = runBlocking {
     //println("$uid $gid")
 
     when (command) {
-        "setup" -> setup(hosts, arguments)
-        "run" -> run(hosts, arguments)
-        "purge" -> purge(hosts)
-        "interrupt" -> interrupt(hosts)
+        "setup" -> setup(me, hosts, arguments)
+        "run" -> run(me, hosts, arguments)
+        "purge" -> purge(me, hosts)
+        "interrupt" -> interrupt(me, hosts)
         else -> throw IllegalArgumentException("Unknown command: $command")
     }
 
 }
 
-suspend fun setup(hosts: List<String>, arguments: Map<String, String>): List<DockerProxy> {
+suspend fun setup(me: String, hosts: List<String>, arguments: Map<String, String>): Pair<DockerConfig, Proxies> {
 
-    if (!arguments.containsKey("config_file")) throw IllegalArgumentException("Missing argument: config_file")
-    println("Parsing configuration file ${arguments["config_file"]}")
+    if (!arguments.containsKey("config")) throw IllegalArgumentException("Missing argument: config")
+    println("Parsing configuration file ${arguments["config"]}")
+
+    val expSetup = Yaml.default.parseToYamlNode(FileInputStream(arguments["config"]!!))
+    val dockerConfigLocation = expSetup.yamlMap.get<YamlScalar>("dockerConfig")!!.content
+    val dockerConfig = Yaml.default.decodeFromStream<DockerConfig>(FileInputStream("configs/$dockerConfigLocation"))
 
 
-    val setupFile = Yaml.default.decodeFromStream<ConfigExps>(FileInputStream(arguments["config_file"]!!)).setupFile
-    val config = Yaml.default.decodeFromStream<ConfigSetup>(FileInputStream(setupFile)).setup
+    val requiredNodeMachines =
+        dockerConfig.nNodes / dockerConfig.maxNodesPerMachine + if (dockerConfig.nNodes % dockerConfig.maxNodesPerMachine > 0) 1 else 0
+    val requiredClientMachines =
+        dockerConfig.nClients / dockerConfig.maxClientsPerMachine + if (dockerConfig.nClients % dockerConfig.maxClientsPerMachine > 0) 1 else 0
 
-    val nodeMachines = hosts.filter { it.startsWith(config.nodeMachines) }
-    val clientMachines = hosts.filter { it.startsWith(config.clientMachines) }
+    if (hosts.size < requiredNodeMachines + requiredClientMachines)
+        throw IllegalStateException(
+            "Not enough machines to run ${dockerConfig.nNodes} nodes and ${dockerConfig.nClients} clients on " +
+                    "${hosts.size} machines with ${dockerConfig.maxNodesPerMachine} nodes and ${dockerConfig.maxClientsPerMachine} " +
+                    "clients per machine"
+        )
 
-    if (nodeMachines.size * config.maxNodesPerMachine < config.nNodes)
-        throw IllegalStateException("Not enough machines to run ${config.nNodes} nodes on ${nodeMachines.size} machines with ${config.maxNodesPerMachine} nodes per machine")
+    val nodeMachines = hosts.subList(0, requiredNodeMachines)
+    val clientMachines = hosts.subList(requiredNodeMachines, requiredNodeMachines + requiredClientMachines)
 
-    if (clientMachines.size * config.maxClientsPerMachine < config.nClients)
-        throw IllegalStateException("Not enough machines to run ${config.nClients} clients on ${clientMachines.size} machines with ${config.maxClientsPerMachine} clients per machine")
-
-    val nLinesTc = Files.lines(Paths.get(config.tcFolder, config.latencyFile)).count()
-    if (nLinesTc < config.nNodes)
-        throw IllegalStateException("Not enough lines in ${config.latencyFile} to run ${config.nNodes} nodes")
+    println("--- Node machines: ${listOf(me)} + $nodeMachines")
+    println("--- Client machines: $clientMachines")
 
     println("--- Checking docker status...")
-
     try {
-        val client = DockerProxy(hosts[0])
+        val client = DockerProxy(me)
         println("Docker seems to be usable")
         client.close()
-
     } catch (e: Exception) {
         if (ExceptionUtils.getRootCause(e) is HttpHostConnectException) {
-            println("--- Docker is not running on ${hosts[0]}, will try to install on all hosts")
-            Thread.sleep(3000)
-            DockerProxy.gridInstallDockerParallel(hosts)
+            //println("--- Docker is not running on ${me}, will try to install on all hosts")
+            //Thread.sleep(3000)
+            //DockerProxy.gridInstallDockerParallel(listOf(me) + hosts)
+            println("--- Docker not running on $me")
+            throw e
         } else throw e
     }
 
     println("--- Creating clients")
-    val nodeProxies = nodeMachines.map { DockerProxy(it) }
-    val clientProxies = clientMachines.map { DockerProxy(it) }
 
-    val proxies = nodeProxies + clientProxies
+    val proxies = Proxies(DockerProxy(me), nodeMachines.map { DockerProxy(it) }, clientMachines.map { DockerProxy(it) })
 
-    purge(hosts, proxies)
-
-    DockerProxy.restartDockerService(hosts)
-
-    nodeProxies.forEach { it.reconnect() }
-    clientProxies.forEach { it.reconnect() }
-
-    println("--- Setting up swarm and network")
-    val tokens = proxies[0].initSwarm()
-    proxies.drop(1).forEach { it.joinSwarm(tokens, proxies[0].shortHost) }
-    if (proxies[0].getSwarmMembers().size != proxies.size) throw IllegalStateException("Swarm members are not equal to the number of hosts")
-
-    val networks = proxies[0].listNetworks()
-    if (networks.contains(config.networkName)) {
-        println("Network ${config.networkName} already exists, will not create it")
+    if (proxies.dcProxy.amSwarmManager() && proxies.dcProxy.getSwarmMembers().size == proxies.allProxies.size) {
+        println("Swarm already exists, will not create it")
+        removeAllContainers(proxies)
     } else {
-        println("Creating overlay network ${config.networkName}")
-        proxies[0].createOverlayNetwork(config.networkName, config.subnet, config.gateway)
+        purge(me, hosts)
+        println("--- Restarting docker service")
+        DockerProxy.restartDockerService(listOf(me) + hosts)
+        println("--- Reconnecting proxies")
+        proxies.allProxies.forEach { it.reconnect() }
+        println("--- Setting up swarm")
+        val tokens = proxies.dcProxy.initSwarm()
+        proxies.nodeProxies.forEach { it.joinSwarm(tokens, proxies.dcProxy.shortHost) }
+        proxies.clientProxies.forEach { it.joinSwarm(tokens, proxies.dcProxy.shortHost) }
+
+        if (proxies.dcProxy.getSwarmMembers().size != proxies.allProxies.size)
+            throw IllegalStateException("Swarm members are not equal to the number of hosts")
+    }
+
+    val networks = proxies.dcProxy.listNetworks()
+    if (networks.contains(dockerConfig.networkName)) {
+        println("--- Network ${dockerConfig.networkName} already exists, will not create it")
+    } else {
+        println("--- Creating overlay network ${dockerConfig.networkName}")
+        proxies.dcProxy.createOverlayNetwork(dockerConfig.networkName, dockerConfig.subnet, dockerConfig.gateway)
     }
 
     println("--- Loading images")
     coroutineScope {
-        proxies.map {
+        proxies.allProxies.map {
             async(Dispatchers.IO) {
-                it.loadImage(config.imageLoc)
+                it.loadImage(dockerConfig.imageLoc)
             }
         }.joinAll()
     }
 
-    println("--- Creating containers")
-
-    val containersInfo = mutableMapOf<String, MutableList<Pair<String, String>>>()
-    proxies.forEach { containersInfo[it.shortHost] = mutableListOf() }
-
-    val ips = File("tc/serverIps.txt").readLines()
-
-    for (containerNumber in config.nContainers - 1 downTo 0) {
-        val proxy = proxies[containerNumber % proxies.size]
-        containersInfo[proxy.shortHost]!!.add(Pair(containerNumber.toString(), ips[containerNumber]))
-    }
-
-    val modulesVol = Volume("/lib/modules")
-    val logsVol = Volume("/logs")
-    val tcVol = Volume("/tc")
-    val codeVol = Volume("/code")
-
-    val volumes = Volumes(modulesVol, logsVol, tcVol, codeVol)
-
-    val binds = Binds(
-        Bind("/lib/modules", modulesVol),
-        Bind(config.logsFolder, logsVol),
-        Bind(config.tcFolder, tcVol, AccessMode.ro),
-        Bind(config.codeFolder, codeVol, AccessMode.ro)
-    )
-    val hostConfig = HostConfig().withAutoRemove(true).withPrivileged(true).withCapAdd(Capability.SYS_ADMIN)
-        .withCapAdd(Capability.NET_ADMIN).withBinds(binds).withNetworkMode(config.networkName)
-
-    val createdChannel: Channel<String> = Channel(config.nContainers)
-    coroutineScope {
-        async(Dispatchers.IO) {
-            proxies.map {
-                async(Dispatchers.IO) {
-                    it.createContainers(
-                        containersInfo[it.shortHost]!!,
-                        config.imageTag,
-                        hostConfig,
-                        volumes,
-                        config.latencyFile,
-                        config.nContainers,
-                        createdChannel
-                    )
-                }
-            }.joinAll()
-        }.invokeOnCompletion { createdChannel.close() }
-
-        var completed = 0
-        for (id in createdChannel) {
-            completed++
-            print("  $completed / ${config.nContainers} (${(completed.toFloat() / config.nContainers * 100).toInt()}%) containers created\r")
-        }
-        println("  $completed / ${config.nContainers} (${(completed.toFloat() / config.nContainers * 100).toInt()}%) containers created")
-    }
-
-    println("--- Containers created")
-
-    return proxies
+    return Pair(dockerConfig, proxies)
 }
 
-suspend fun run(hosts: List<String>, arguments: Map<String, String>) {
-    val proxies = if (arguments.containsKey("setup")) {
-        val setup = setup(hosts, arguments)
-        println("--- Waiting 10 seconds for containers to start")
-        sleep(10000)
-        setup
-    } else {
-        println("--- Creating clients")
-        hosts.map { DockerProxy(it) }
-    }
+suspend fun run(me: String, hosts: List<String>, arguments: Map<String, String>) {
 
-    val runStart = System.currentTimeMillis()
+    val (dockerConfig, proxies) = setup(me, hosts, arguments)
 
-    if (!arguments.containsKey("config_file")) throw IllegalArgumentException("Missing argument: config_file")
-    println("--- Parsing configuration file ${arguments["config_file"]}")
+    if (!arguments.containsKey("config")) throw IllegalArgumentException("Missing argument: config")
+    println("--- Parsing configuration file ${arguments["config"]}")
 
-    val expConfig = Yaml.default.decodeFromStream<Config>(FileInputStream(arguments["config_file"]!!)).exps
+    val expSetup = Yaml.default.parseToYamlNode(FileInputStream(arguments["config"]!!))
+    val expNodes = expSetup.yamlMap.get<YamlList>("exps")!!
 
-    val locationsMap = readLocationsMapFromFile(expConfig.nodeLocationsFile)
-
-    println("--- Getting existing containers")
-    val containers = proxies.flatMap { it.listContainers() }.sortedBy { it.inspect.name.split("-")[1].toInt() }
-    println("Found ${containers.size} containers")
-
-    expConfig.forEach { exp ->
-        if (exp.skip) {
-            println("Skipping ${exp.name}")
-            return@forEach
+    expNodes.items.forEach {
+        when(val expType = it.yamlMap.get<YamlScalar>("type")!!.content) {
+            "micro" -> {
+                runMicro(it, proxies, dockerConfig)
+            }
+            else -> throw IllegalArgumentException("Unknown experiment type: $expType")
         }
-
-        println("--- Starting experiment ${exp.name}")
-        val expStart = System.currentTimeMillis()
-
-        when (exp.type) {
-            "basic" -> runBasicExp(exp, containers, locationsMap)
-            "dying" -> runDyingExp(exp, containers, locationsMap)
-            else -> throw IllegalArgumentException("Unknown experiment type ${exp.type}")
-        }
-
-        val expEnd = System.currentTimeMillis()
-        println("--- Experiment ${exp.name} completed in ${(expEnd - expStart) / 1000}s. Total so far ${(expEnd - runStart) / 1000}s")
     }
 }
 
@@ -236,30 +163,7 @@ fun readLocationsMapFromFile(nodeLocationsFile: String): Map<Int, Pair<Double, D
     return locationsMap
 }
 
-suspend fun runBasicExp(
-    exp: Exp,
-    containers: List<DockerProxy.ContainerProxy>,
-    locationsMap: Map<Int, Pair<Double, Double>>,
-) {
-    val neededContainers = exp.nodes.values.sum()
-    if (containers.size < neededContainers)
-        throw IllegalStateException("Not enough containers to run experiment, found ${containers.size} but need $neededContainers")
-
-    val runningContainers = mutableListOf<DockerProxy.ContainerProxy>()
-    startAllProcesses(exp, containers, runningContainers, null, locationsMap)
-
-    sleep(exp.duration!! * 1000L)
-
-    stopEverything(runningContainers)
-
-    println("Changing ownership")
-    containers[0].proxy.executeCommand(
-        containers[0].inspect.id,
-        arrayOf("chown", "-R", "$uid:$gid", "/logs/${exp.name}/")
-    )
-
-}
-
+/*
 suspend fun runDyingExp(
     exp: Exp,
     containers: List<DockerProxy.ContainerProxy>,
@@ -295,49 +199,9 @@ suspend fun runDyingExp(
     stopEverything(runningContainers)
 }
 
-private suspend fun startAllProcesses(
-    exp: Exp,
-    containers: List<DockerProxy.ContainerProxy>,
-    runningContainers: MutableList<DockerProxy.ContainerProxy>,
-    runningContainersPerRegion: MutableMap<String, MutableList<DockerProxy.ContainerProxy>>?,
-    locationsMap: Map<Int, Pair<Double, Double>>,
-) {
-    print("Starting processes... ")
-    coroutineScope {
-        var index = 0
-        for ((region, nodes) in exp.nodes) {
-            if (runningContainersPerRegion != null) runningContainersPerRegion[region] = mutableListOf()
-            val regionalDc = containers[index].inspect.config.hostName!!
-            repeat(nodes) {
-                val container = containers[index]
-                val hostname = container.inspect.config.hostName!!
-                val location = locationsMap[hostname.split("-")[1].toInt()]!!
-                val cmd = mutableListOf(
-                    "./start.sh",
-                    "/logs/${exp.name}/$hostname.log",
-                    "hostname=$hostname",
-                    "region=$region",
-                    "datacenter=$regionalDc",
-                    "location_x=${location.first}",
-                    "location_y=${location.second}"
-                )
-                if (exp.staticTree != null) {
-                    cmd.add("tree_builder=Static")
-                    cmd.add("tree_location=${exp.staticTree}")
-                }
-                launch(Dispatchers.IO) {
-                    container.proxy.executeCommand(container.inspect.id, cmd.toTypedArray())
-                }
-                if (runningContainersPerRegion != null) runningContainersPerRegion[region]!!.add(container)
-                runningContainers.add(container)
-                index++
-            }
-        }
-    }
-    println("done.")
-}
+*/
 
-private suspend fun stopEverything(containers: List<DockerProxy.ContainerProxy>) {
+suspend fun stopEverything(containers: List<DockerProxy.ContainerProxy>) {
     print("Stopping processes... ")
     coroutineScope {
         containers.forEach {
@@ -358,9 +222,9 @@ private suspend fun stopEverything(containers: List<DockerProxy.ContainerProxy>)
 
 }
 
-suspend fun interrupt(hosts: List<String>) {
+suspend fun interrupt(me: String, hosts: List<String>) {
     println("--- Creating clients")
-    val proxies = hosts.map { DockerProxy(it) }
+    val proxies = (listOf(me) + hosts).map { DockerProxy(it) }
     println("--- Getting existing containers")
     val containers = proxies.flatMap { it.listContainers() }.sortedBy { it.inspect.name.split("-")[1].toInt() }
     println("Found ${containers.size} containers")
@@ -373,17 +237,32 @@ suspend fun interrupt(hosts: List<String>) {
 
 }
 
-suspend fun purge(hosts: List<String>, dockerClients: List<DockerProxy> = emptyList()) {
+suspend fun purge(me: String, hosts: List<String>) {
 
     println("--- Purging everything")
 
-    val clients = dockerClients.ifEmpty { hosts.map { DockerProxy(it) } }
+    val clients = (listOf(me) + hosts).map { DockerProxy(it) }
+
+    println(clients.map { it.shortHost })
 
     coroutineScope {
         clients.map {
             async(Dispatchers.IO) {
                 it.removeAllContainers()
                 it.leaveSwarm()
+            }
+        }.joinAll()
+    }
+}
+
+suspend fun removeAllContainers(proxies: Proxies) {
+
+    println("--- Removing all containers")
+
+    coroutineScope {
+        proxies.allProxies.map {
+            async(Dispatchers.IO) {
+                it.removeAllContainers()
             }
         }.joinAll()
     }
@@ -413,7 +292,7 @@ fun parseArguments(args: Array<String>): Map<String, String> {
     return params
 }
 
-private fun sleep(durationMs: Long) {
+fun sleep(durationMs: Long) {
     val startMs = System.currentTimeMillis()
     while (System.currentTimeMillis() - startMs < durationMs) {
         val elapsedMs = System.currentTimeMillis() - startMs
@@ -424,3 +303,8 @@ private fun sleep(durationMs: Long) {
     print("                                             \r")
     println("Slept for ${durationMs / 1000} seconds")
 }
+
+data class Proxies(
+    val dcProxy: DockerProxy, val nodeProxies: List<DockerProxy>, val clientProxies: List<DockerProxy>,
+    val allProxies: List<DockerProxy> = listOf(dcProxy) + nodeProxies + clientProxies,
+)

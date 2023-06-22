@@ -3,16 +3,16 @@
 echo "I am $1 and there are $3 nodes"
 
 idx=$1
-n_nodes=$3
 latencyMap="/tc/$2"
+n_nodes=$3
+selfLatency=$4
+
+out_bandwith=$5
+in_bandwith=$5
+
 ipsMap="tc/serverIps.txt"
 
 #bandwith=$2
-
-if [ -z $out_bandwith ]; then
-  out_bandwith=1000
-fi
-in_bandwith=$((out_bandwith*2))
 
 
 # Read ipsMap to list of ips
@@ -27,7 +27,6 @@ run_cmd() {
 }
 
 setup_tc() {
-
 
   run_cmd "modprobe ifb numifbs=1"
   run_cmd "ip link add ifb0 type ifb"
@@ -45,14 +44,19 @@ setup_tc() {
 
     j=$((j + 1))
 
-    if [ $((j-1)) -eq $idx ]; then continue; fi
-
     targetIp=$(echo ${ips} | cut -d' ' -f${j})
     echo "--- $targetIp ->  $n"
 
-    run_cmd "tc class add dev eth0 parent 1: classid 1:${j}1 htb rate ${out_bandwith}mbit"
-    run_cmd "tc qdisc add dev eth0 parent 1:${j}1 netem delay ${n}ms"
-    run_cmd "tc filter add dev eth0 protocol ip parent 1:0 prio 1 u32 match ip dst $targetIp flowid 1:${j}1"
+    if [ $((j - 1)) -eq $idx ]; then
+      run_cmd "tc class add dev eth0 parent 1: classid 1:${j}1 htb rate ${out_bandwith}mbit"
+      run_cmd "tc qdisc add dev eth0 parent 1:${j}1 netem delay ${selfLatency}ms"
+      run_cmd "tc filter add dev eth0 protocol ip parent 1:0 prio 1 u32 match ip dst $targetIp flowid 1:${j}1"
+    else
+      run_cmd "tc class add dev eth0 parent 1: classid 1:${j}1 htb rate ${out_bandwith}mbit"
+      run_cmd "tc qdisc add dev eth0 parent 1:${j}1 netem delay ${n}ms"
+      run_cmd "tc filter add dev eth0 protocol ip parent 1:0 prio 1 u32 match ip dst $targetIp flowid 1:${j}1"
+    fi
+
   done
 }
 
@@ -60,7 +64,7 @@ i=0
 echo "Setting up tc emulated network..."
 while read -r line; do
   if [ $idx -eq $i ]; then
-    setup_tc "$line"
+    setup_tc "$line" "$i"
     break
   fi
   i=$((i + 1))

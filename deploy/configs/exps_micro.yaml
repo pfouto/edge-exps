@@ -1,0 +1,19 @@
+dockerConfig: "docker_config.yaml"
+exps:
+  - type: "micro" #name of the exp
+    name: "performance"
+    skip: false
+    tcSetup: [ "tc_1.yaml","tc_2.yaml", "tc_3.yaml" ]
+    nodes: [1, 50, 100, 300]
+    duration: 120
+    dataDistribution: ["global", "local", "distance"]
+
+#  - type: "micro_failures"
+#    name: "failures"
+#    skip: true
+#    tcSetup: [ "tc_1.yaml","tc_2.yaml", "tc_3.yaml" ]
+#    nodes: [1, 50, 100, 300]
+#    duration: 120
+#    dataDistribution: ["global", "local", "distance"]
+
+

@@ -33,7 +33,7 @@ class DockerProxy(private val host: String) {
 
         client = DockerClientImpl.getInstance(dockerClientConfig, httpClient)
         client.pingCmd().exec()
-        println("Created DockerProxy for $shortHost")
+        //println("Created DockerProxy for $shortHost")
     }
 
     fun reconnect() {
@@ -49,12 +49,12 @@ class DockerProxy(private val host: String) {
 
         client = DockerClientImpl.getInstance(dockerClientConfig, httpClient)
         client.pingCmd().exec()
-        println("Re-created DockerProxy for $shortHost")
+        //println("Re-created DockerProxy for $shortHost")
     }
 
     fun removeAllContainers() {
         val containers = client.listContainersCmd().exec()
-        println("Removing ${containers.size} containers on $shortHost")
+        //println("Removing ${containers.size} containers on $shortHost")
         containers.forEach { client.removeContainerCmd(it.id).withForce(true).exec() }
     }
 
@@ -81,6 +81,17 @@ class DockerProxy(private val host: String) {
         println("Joined swarm on $shortHost")
     }
 
+    fun amSwarmManager(): Boolean {
+        try {
+            client.inspectSwarmCmd().exec()
+            return true
+        } catch (e: DockerException) {
+            if(e.httpStatus == 503)
+                return false
+            throw e
+        }
+    }
+
     fun getSwarmMembers(): List<String> {
         return client.listSwarmNodesCmd().exec().map { it.description!!.hostname!! }
     }
@@ -103,32 +114,48 @@ class DockerProxy(private val host: String) {
     }
 
     fun loadImage(imageLoc: String) {
-        println("Loading image $imageLoc on $shortHost")
+        //println("Loading image $imageLoc on $shortHost")
         client.loadImageCmd(java.io.File(imageLoc).inputStream()).exec()
     }
 
-    suspend fun createContainers(
-        pairs: MutableList<Pair<String, String>>, imageTag: String, hostConfig: HostConfig,
-        volumes: Volumes, latencyFile: String, nContainers: Int, channel: Channel<String>,
+    suspend fun createServerContainers(
+        pairs: MutableList<Pair<Int, String>>, imageTag: String, hostConfig: HostConfig,
+        volumes: Volumes, latencyFile: String, nServers: Int, channel: Channel<String>,
     ) {
-        println("Creating ${pairs.size} containers on $shortHost")
+        //println("Creating ${pairs.size} containers on $shortHost")
         pairs.forEach { (number, ip) ->
-            createContainer(number, ip, imageTag, hostConfig, volumes, latencyFile, nContainers, channel)
+            createContainer(
+                "node", number, ip, imageTag, hostConfig, volumes, latencyFile,
+                nServers, channel, 0, if (number == 0) 10000 else 1000
+            )
+        }
+    }
+
+    suspend fun createClientContainers(
+        pairs: MutableList<Pair<Int, String>>, imageTag: String, hostConfig: HostConfig,
+        volumes: Volumes, latencyFile: String, nServers: Int, channel: Channel<String>,
+    ) {
+        //println("Creating ${pairs.size} containers on $shortHost")
+        pairs.forEach { (number, ip) ->
+            createContainer(
+                "client", number, ip, imageTag, hostConfig, volumes, latencyFile,
+                nServers, channel, 5, 10000
+            )
         }
     }
 
     private suspend fun createContainer(
-        id: String, ip: String, image: String, hostConfig: HostConfig, volumes: Volumes,
-        latencyFile: String, nContainers: Int, channel: Channel<String>,
+        baseName: String, id: Int, ip: String, image: String, hostConfig: HostConfig, volumes: Volumes,
+        latencyFile: String, nServers: Int, channel: Channel<String>, selfLatency: Int, bandwidth: Int,
     ) {
         //println("Creating container $id on $shortHost")
-        val name = "node-$id"
+        val name = "$baseName-$id"
 
         val cId = client.createContainerCmd(image).withName(name).withHostName(name).withTty(true)
             .withAttachStderr(false).withAttachStdout(false)
             .withAttachStdin(false).withHostConfig(hostConfig).withVolumes(volumes.volumes.toList())
-            .withCmd(id, latencyFile, nContainers.toString()).withIpv4Address(ip)
-            .exec()
+            .withCmd(id.toString(), latencyFile, nServers.toString(), selfLatency.toString(), bandwidth.toString())
+            .withIpv4Address(ip).exec()
 
         client.startContainerCmd(cId.id).exec()
 
@@ -143,6 +170,7 @@ class DockerProxy(private val host: String) {
     }
 
     fun executeCommand(cId: String, cmd: Array<String>): String {
+
         val create = client.execCreateCmd(cId).withCmd(*cmd).withWorkingDir("/code").exec()
         val exec = client.execStartCmd(create.id).withDetach(true)
             .exec(object : ResultCallback.Adapter<Frame>() {
@@ -156,7 +184,7 @@ class DockerProxy(private val host: String) {
     }
 
     fun waitAllRunningCmds() {
-        while(runningCmds.isNotEmpty()) {
+        while (runningCmds.isNotEmpty()) {
             runningCmds.removeIf {
                 !client.inspectExecCmd(it).exec().isRunning
             }
@@ -197,7 +225,7 @@ class DockerProxy(private val host: String) {
                     errorJob.join() // wait for error job to finish
 
                     process.waitFor()
-                    println("$host exit value is ${process.exitValue()}")
+                    //println("$host exit value is ${process.exitValue()}")
                     process.exitValue()
                 }
             }
@@ -209,7 +237,7 @@ class DockerProxy(private val host: String) {
         suspend fun restartDockerService(hosts: List<String>) = coroutineScope {
             val jobs = hosts.map { host ->
                 async(Dispatchers.IO) {
-                    println("Restarting docker on $host")
+                    //println("Restarting docker on $host")
                     val process = Runtime.getRuntime()
                         .exec(arrayOf("ssh", "-n", host, "sudo systemctl restart docker"))
 

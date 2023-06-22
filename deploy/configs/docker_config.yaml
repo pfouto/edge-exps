@@ -1,0 +1,19 @@
+## setup information
+nNodes: 300
+maxNodesPerMachine: 50
+
+nClients: 299
+maxClientsPerMachine: 150
+
+imageLoc: "/home/pfouto/edge/exps/docker/tc.tar"
+imageTag: "tc:0.1"
+
+logsFolder: "/home/pfouto/edge/logs"
+tcFolder: "/home/pfouto/edge/exps/tc"
+serverFolder: "/home/pfouto/edge/server"
+clientFolder: "/home/pfouto/edge/client"
+
+networkName: "edgenet"
+subnet: "10.10.0.0/16" #docker network ip range
+gateway: "10.10.0.1" #docker network gateway
+

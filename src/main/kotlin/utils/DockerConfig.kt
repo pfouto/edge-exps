@@ -1,26 +1,24 @@
+package utils
+
 import kotlinx.serialization.Serializable
 
 @Serializable
-data class ConfigSetup (
-    val setup: Setup,
-)
+data class DockerConfig (
 
-@Serializable
-data class Setup (
     val nNodes: Int,
     val maxNodesPerMachine: Int,
-    val nodeMachines: String,
 
     val nClients: Int,
     val maxClientsPerMachine: Int,
-    val clientMachines: String,
 
     val imageLoc: String,
     val imageTag: String,
+
     val logsFolder: String,
-    val codeFolder: String,
+    val serverFolder: String,
+    val clientFolder: String,
     val tcFolder: String,
-    val latencyFile: String,
+
     val networkName: String,
     val subnet: String,
     val gateway: String,
