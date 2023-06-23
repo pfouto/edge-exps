@@ -18,7 +18,7 @@ class DockerProxy(private val host: String) {
     private var client: DockerClient
     val shortHost: String = host.split(".").first()
 
-    val runningCmds = Collections.synchronizedList(mutableListOf<String>())
+    private val runningCmds = Collections.synchronizedList(mutableListOf<String>())
 
     init {
         val dockerClientConfig = DefaultDockerClientConfig.createDefaultConfigBuilder()

@@ -9,6 +9,8 @@ import utils.DockerConfig
 import utils.TcConfig
 import java.io.File
 import java.io.FileInputStream
+import kotlin.math.pow
+import kotlin.math.sqrt
 
 suspend fun runMicro(expYaml: YamlNode, proxies: Proxies, dockerConfig: DockerConfig) {
     val expConfig = Yaml.default.decodeFromString<MicroConfig>(expYaml.contentToString())
@@ -30,31 +32,121 @@ suspend fun runMicro(expYaml: YamlNode, proxies: Proxies, dockerConfig: DockerCo
                 throw Exception("Not enough nodes for experiment")
 
             expConfig.dataDistribution.forEach { dataDistribution ->
-                val logsPath = "/logs/${expConfig.name}/$tcConfigFile/$nNodes/$dataDistribution"
-
-                println(
-                    "--- Running experiment with $tcConfigFile, $nNodes nodes, " +
-                            "$dataDistribution data distribution"
-                )
-
-                startAllNodes(nodes, locationsMap, logsPath)
-
-                sleep(expConfig.duration * 1000L)
-
-                stopEverything(nodes)
-
-
-                println("Changing ownership")
-
-                nodes[0].proxy.executeCommand(
-                    nodes[0].inspect.id,
-                    arrayOf("chown", "-R", "$uid:$gid", "${logsPath}/")
-                )
-
+                expConfig.readPercents.forEach { readPercent ->
+                    expConfig.threads.forEach { nThreads ->
+                        runExp(
+                            nodes, clients, locationsMap, expConfig, tcConfigFile, nNodes,
+                            dataDistribution, readPercent, nThreads
+                        )
+                    }
+                }
             }
         }
         removeAllContainers(proxies)
     }
+}
+
+suspend fun runExp(
+    nodes: List<DockerProxy.ContainerProxy>, clients: List<DockerProxy.ContainerProxy>,
+    locationsMap: Map<Int, Location>, expConfig: MicroConfig, tcConfigFile: String, nNodes: Int,
+    dataDistribution: String, readPercent: Int, nThreads: Int,
+) {
+    val logsPath =
+        "/logs/${expConfig.name}/$tcConfigFile/$nNodes/$dataDistribution/$readPercent/$nThreads"
+
+    nodes[0].proxy.executeCommand(
+        nodes[0].inspect.id, arrayOf("mkdir", "-p", logsPath)
+    )
+
+    println(
+        "---------- Running experiment with $tcConfigFile, $nNodes nodes, " +
+                "$dataDistribution data distribution, $readPercent reads, $nThreads threads -------"
+    )
+
+    startAllNodes(nodes, locationsMap, logsPath)
+    println("Waiting for tree to stabilize")
+    when (nNodes) {
+        300 -> sleep(30000)
+        50, 100 -> sleep(15000)
+        1 -> sleep(5000)
+        else -> throw Exception("Invalid number of nodes $nNodes")
+    }
+
+    println("Starting clients")
+    startAllClients(
+        clients, locationsMap, expConfig.partitions, dataDistribution,
+        nNodes, nThreads, readPercent, logsPath
+    )
+
+    println("Waiting for experiment to finish")
+    sleep(expConfig.duration * 1000L)
+
+    println("Stopping clients")
+    stopEverything(clients)
+    println("Stopping nodes")
+    stopEverything(nodes)
+
+    println("Changing ownership")
+
+    /*nodes[0].proxy.executeCommand(
+        nodes[0].inspect.id,
+        arrayOf("chown", "-R", "$uid:$gid", "${logsPath}/")
+    )*/
+}
+
+private suspend fun startAllClients(
+    clients: List<DockerProxy.ContainerProxy>, locationsMap: Map<Int, Location>, partitions: Map<Int, String>,
+    dataDistribution: String, nNodes: Int, nThreads: Int, readPercent: Int, logsPath: String,
+) {
+    coroutineScope {
+        clients.forEach { container ->
+            val hostname = container.inspect.config.hostName!!
+            val clientNumber = hostname.split("-")[1].toInt()
+            val closestNode = closestActiveNode(clientNumber, locationsMap, nNodes)
+            val clientNode = "node-${closestNode.first}"
+            val nodeSlice = closestNode.second.slice
+            val cmd = mutableListOf(
+                "./start.sh",
+                "$logsPath/$hostname",
+                "-threads", "$nThreads",
+                "-p", "host=$clientNode",
+                "-p", "readproportion=${readPercent/100.0}",
+                "-p", "updateproportion=${(100 - readPercent)/100.0}",
+            )
+            when (dataDistribution) {
+                "global" ->{
+                    cmd.add("-p")
+                    cmd.add("workload=site.ycsb.workloads.EdgeFixedWorkload")
+                    cmd.add("-p")
+                    cmd.add("tables=${partitions.values.joinToString(",")}")
+                }
+                "local" -> {
+                    val tables = "${partitions[nodeSlice]!!}," +
+                            "${partitions[(nodeSlice + 1)%partitions.size]}," +
+                            "${partitions[if(nodeSlice - 1 < 0) partitions.size - 1 else nodeSlice - 1]}"
+                    cmd.add("-p")
+                    cmd.add("workload=site.ycsb.workloads.EdgeFixedWorkload")
+                    cmd.add("-p")
+                    cmd.add("tables=$tables")
+                }
+                else -> throw Exception("Invalid data distribution $dataDistribution")
+            }
+            launch(Dispatchers.IO) {
+                container.proxy.executeCommand(container.inspect.id, cmd.toTypedArray(), "/client")
+            }
+        }
+    }
+}
+
+private fun closestActiveNode(clientNumber: Int, locationsMap: Map<Int, Location>, nNodes: Int): Pair<Int, Location> {
+    val clientLoc = locationsMap[clientNumber]!!
+    val activeNodes = locationsMap.filter { it.key < nNodes && it.key != 0 }
+    val closestNode = activeNodes.minByOrNull { distance(clientLoc, it.value) }!!
+    return Pair(closestNode.key, closestNode.value)
+}
+
+private fun distance(loc1: Location, loc2: Location): Double {
+    return sqrt((loc1.x - loc2.x).pow(2.0) + (loc1.y - loc2.y).pow(2.0))
 }
 
 private suspend fun startAllNodes(
@@ -65,13 +157,13 @@ private suspend fun startAllNodes(
     print("Starting nodes... ")
     coroutineScope {
         val dc = nodes[0].inspect.config.hostName!!
-        var index = 0
         nodes.forEach { container ->
             val hostname = container.inspect.config.hostName!!
-            val location = locationsMap[hostname.split("-")[1].toInt()]!!
-            val cmd = mutableListOf(
+            val nodeNumber = hostname.split("-")[1].toInt()
+            val location = locationsMap[nodeNumber]!!
+            val cmd = listOf(
                 "./start.sh",
-                "$logsPath/$hostname.log",
+                "$logsPath/$hostname",
                 "hostname=$hostname",
                 "region=eu",
                 "datacenter=$dc",
@@ -82,7 +174,6 @@ private suspend fun startAllNodes(
             launch(Dispatchers.IO) {
                 container.proxy.executeCommand(container.inspect.id, cmd.toTypedArray(), "/server")
             }
-            index++
         }
     }
     println("done.")
@@ -107,7 +198,7 @@ suspend fun launchContainers(tcConfig: TcConfig, proxies: Proxies, dockerConfig:
     val clientContainersInfo = mutableMapOf<String, MutableList<Pair<Int, String>>>()
     proxies.clientProxies.forEach { clientContainersInfo[it.shortHost] = mutableListOf() }
     val clientIps = File("tc/clientIps.txt").readLines()
-    for (containerNumber in dockerConfig.nClients - 1 downTo 0) {
+    for (containerNumber in dockerConfig.nClients downTo 1) {
         val proxy = proxies.clientProxies[containerNumber % proxies.clientProxies.size]
         clientContainersInfo[proxy.shortHost]!!.add(Pair(containerNumber, clientIps[containerNumber]))
     }
@@ -142,8 +233,14 @@ suspend fun launchContainers(tcConfig: TcConfig, proxies: Proxies, dockerConfig:
             val nodeCallbacks = (listOf(proxies.dcProxy) + proxies.nodeProxies).map {
                 async(Dispatchers.IO) {
                     it.createServerContainers(
-                        nodeContainersInfo[it.shortHost]!!, dockerConfig.imageTag,
-                        hostConfigFull, hostConfigLimited, volumes, tcConfig.latencyFile, dockerConfig.nNodes, createdChannel
+                        nodeContainersInfo[it.shortHost]!!,
+                        dockerConfig.imageTag,
+                        hostConfigFull,
+                        hostConfigLimited,
+                        volumes,
+                        tcConfig.latencyFile,
+                        dockerConfig.nNodes,
+                        createdChannel
                     )
                 }
             }

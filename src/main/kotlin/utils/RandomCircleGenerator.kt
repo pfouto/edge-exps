@@ -9,7 +9,7 @@ import kotlin.random.Random
 const val nPoints = 300
 const val circleRadius = 300
 const val seed = 3
-const val minDist = 15
+const val minDist = 25
 const val nSlices = 8
 
 val dec = DecimalFormat("#,###.##")
@@ -41,25 +41,29 @@ fun main(args: Array<String>) {
     }
 
     //Write allNodes to a file
-    val file = java.io.File("nodes.txt")
+    val file = java.io.File("nodes_$seed.txt")
     file.delete()
     allNodes.forEach {
         file.appendText("${it.id}\t${it.x}\t${it.y}\t${it.slice}\n")
     }
 
     var maxDist = 0.0
-    val file2 = java.io.File("latencies.txt")
+    var minDist = Double.MAX_VALUE
+
+    val file2 = java.io.File("latencies_$seed.txt")
     file2.delete()
     allNodes.forEach {
         allNodes.forEach { other ->
             val distance = distanceTo(it.x, it.y, other.x, other.y)/3
             if(distance > maxDist) maxDist = distance
+            if(distance < minDist && distance != 0.0) minDist = distance
             file2.appendText("${dec.format(distance)} ")
         }
         file2.appendText("\n")
     }
     println(allNodes.map { it.slice }.groupBy { it }.map { Pair(it.key, it.value.size) })
     println("Max latency: $maxDist")
+    println("Min latency: $minDist")
 }
 
 fun awayFromAll(x: Double, y: Double, allNodes: List<Node>): Boolean {

@@ -3,21 +3,26 @@ exps:
   - type: "micro" #name of the exp
     name: "performance"
     skip: false
-    tcSetup: [ "tc_1.yaml","tc_2.yaml", "tc_3.yaml" ]
+    duration: 180
+    #    tcSetup: [ "tc_1.yaml","tc_2.yaml", "tc_3.yaml" ]
+    tcSetup: [ "tc_1.yaml" ]
     #    nodes: [1, 50, 100, 300]
-    nodes: [ 50, 100, 300 ]
-    duration: 120
+    nodes: [1, 50, 100, 300]
+    #    threads: [ 1, 2, 4, 8, 16, 32, 64, 128, 256, 512 ]
+    threads: [ 1, 2, 4, 8, 16 ]
+    #    readPercents: [95, 50]
+    readPercents: [95, 50]
     #    dataDistribution: ["global", "local", "distance"]
-    dataDistribution: [ "distance" ]
+    dataDistribution: [ "local", "global"]
     partitions:
-      - 0: "A"
-      - 1: "B"
-      - 2: "C"
-      - 3: "D"
-      - 4: "E"
-      - 5: "F"
-      - 6: "G"
-      - 7: "H"
+      0: "A"
+      1: "B"
+      2: "C"
+      3: "D"
+      4: "E"
+      5: "F"
+      6: "G"
+      7: "H"
 
 #  - type: "micro_failures"
 #    name: "failures"

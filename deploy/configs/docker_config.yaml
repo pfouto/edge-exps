@@ -2,6 +2,7 @@
 nNodes: 300
 maxNodesPerMachine: 50
 
+#nClients: 299
 nClients: 299
 maxClientsPerMachine: 150
 

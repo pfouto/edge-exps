@@ -139,6 +139,8 @@ suspend fun run(me: String, hosts: List<String>, arguments: Map<String, String>)
     val expSetup = Yaml.default.parseToYamlNode(FileInputStream(arguments["config"]!!))
     val expNodes = expSetup.yamlMap.get<YamlList>("exps")!!
 
+    println(" ------------------ STARTING EXPERIENCES ------------------")
+
     expNodes.items.forEach {
         when(val expType = it.yamlMap.get<YamlScalar>("type")!!.content) {
             "micro" -> {

@@ -9,5 +9,7 @@ data class MicroConfig(
     val nodes: List<Int>,
     val duration: Int,
     val dataDistribution: List<String>,
-    val partitions: Map<Int, String>
+    val partitions: Map<Int, String>,
+    val threads: List<Int>,
+    val readPercents: List<Int>
 )
