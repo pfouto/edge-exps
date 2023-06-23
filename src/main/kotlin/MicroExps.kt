@@ -110,25 +110,30 @@ private suspend fun startAllClients(
                 "$logsPath/$hostname",
                 "-threads", "$nThreads",
                 "-p", "host=$clientNode",
-                "-p", "readproportion=${readPercent/100.0}",
-                "-p", "updateproportion=${(100 - readPercent)/100.0}",
+                "-p", "readproportion=${readPercent / 100.0}",
+                "-p", "updateproportion=${(100 - readPercent) / 100.0}",
             )
             when (dataDistribution) {
-                "global" ->{
+                "global" -> {
                     cmd.add("-p")
                     cmd.add("workload=site.ycsb.workloads.EdgeFixedWorkload")
                     cmd.add("-p")
                     cmd.add("tables=${partitions.values.joinToString(",")}")
                 }
+
                 "local" -> {
-                    val tables = "${partitions[nodeSlice]!!}," +
-                            "${partitions[(nodeSlice + 1)%partitions.size]}," +
-                            "${partitions[if(nodeSlice - 1 < 0) partitions.size - 1 else nodeSlice - 1]}"
+
+                    val tables = if (nodeSlice != -1) "${partitions[nodeSlice]!!}," +
+                            "${partitions[(nodeSlice + 1) % partitions.size]}," +
+                            "${partitions[if (nodeSlice - 1 < 0) partitions.size - 1 else nodeSlice - 1]}"
+                    else partitions.values.joinToString(",")
+
                     cmd.add("-p")
                     cmd.add("workload=site.ycsb.workloads.EdgeFixedWorkload")
                     cmd.add("-p")
                     cmd.add("tables=$tables")
                 }
+
                 else -> throw Exception("Invalid data distribution $dataDistribution")
             }
             launch(Dispatchers.IO) {
@@ -140,7 +145,7 @@ private suspend fun startAllClients(
 
 private fun closestActiveNode(clientNumber: Int, locationsMap: Map<Int, Location>, nNodes: Int): Pair<Int, Location> {
     val clientLoc = locationsMap[clientNumber]!!
-    val activeNodes = locationsMap.filter { it.key < nNodes && it.key != 0 }
+    val activeNodes = locationsMap.filter { it.key < nNodes }
     val closestNode = activeNodes.minByOrNull { distance(clientLoc, it.value) }!!
     return Pair(closestNode.key, closestNode.value)
 }
