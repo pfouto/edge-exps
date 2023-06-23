@@ -8,5 +8,6 @@ data class MicroConfig(
     val tcSetup: List<String>,
     val nodes: List<Int>,
     val duration: Int,
-    val dataDistribution: List<String>
+    val dataDistribution: List<String>,
+    val partitions: Map<Int, String>
 )

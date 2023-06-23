@@ -86,7 +86,7 @@ class DockerProxy(private val host: String) {
             client.inspectSwarmCmd().exec()
             return true
         } catch (e: DockerException) {
-            if(e.httpStatus == 503)
+            if (e.httpStatus == 503)
                 return false
             throw e
         }
@@ -119,15 +119,21 @@ class DockerProxy(private val host: String) {
     }
 
     suspend fun createServerContainers(
-        pairs: MutableList<Pair<Int, String>>, imageTag: String, hostConfig: HostConfig,
-        volumes: Volumes, latencyFile: String, nServers: Int, channel: Channel<String>,
+        pairs: MutableList<Pair<Int, String>>, imageTag: String, hostConfigFirst: HostConfig,
+        hostConfigRest: HostConfig, volumes: Volumes, latencyFile: String, nServers: Int, channel: Channel<String>,
     ) {
         //println("Creating ${pairs.size} containers on $shortHost")
         pairs.forEach { (number, ip) ->
-            createContainer(
-                "node", number, ip, imageTag, hostConfig, volumes, latencyFile,
-                nServers, channel, 0, if (number == 0) 10000 else 1000
-            )
+            if (number == 0)
+                createContainer(
+                    "node", number, ip, imageTag, hostConfigFirst, volumes,
+                    latencyFile, nServers, channel, 0, 10000
+                )
+            else
+                createContainer(
+                    "node", number, ip, imageTag, hostConfigRest, volumes, latencyFile,
+                    nServers, channel, 0, 1000
+                )
         }
     }
 
@@ -150,6 +156,7 @@ class DockerProxy(private val host: String) {
     ) {
         //println("Creating container $id on $shortHost")
         val name = "$baseName-$id"
+
 
         val cId = client.createContainerCmd(image).withName(name).withHostName(name).withTty(true)
             .withAttachStderr(false).withAttachStdout(false)
@@ -185,16 +192,16 @@ class DockerProxy(private val host: String) {
 
     fun waitAllRunningCmds() {
         while (runningCmds.isNotEmpty()) {
-                runningCmds.removeIf {
-                    try{
-                        !client.inspectExecCmd(it).exec().isRunning
-                    } catch (e: DockerException) {
-                        if(e.httpStatus == 404)
-                            true
-                        else
-                            throw e
-                    }
+            runningCmds.removeIf {
+                try {
+                    !client.inspectExecCmd(it).exec().isRunning
+                } catch (e: DockerException) {
+                    if (e.httpStatus == 404)
+                        true
+                    else
+                        throw e
                 }
+            }
             Thread.sleep(500)
         }
     }

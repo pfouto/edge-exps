@@ -59,8 +59,8 @@ suspend fun runMicro(expYaml: YamlNode, proxies: Proxies, dockerConfig: DockerCo
 
 private suspend fun startAllNodes(
     nodes: List<DockerProxy.ContainerProxy>,
-    locationsMap: Map<Int, Pair<Double, Double>>,
-    logsPath: String
+    locationsMap: Map<Int, Location>,
+    logsPath: String,
 ) {
     print("Starting nodes... ")
     coroutineScope {
@@ -75,8 +75,8 @@ private suspend fun startAllNodes(
                 "hostname=$hostname",
                 "region=eu",
                 "datacenter=$dc",
-                "location_x=${location.first}",
-                "location_y=${location.second}",
+                "location_x=${location.x}",
+                "location_y=${location.y}",
                 "tree_builder_nnodes=${nodes.size}",
             )
             launch(Dispatchers.IO) {
@@ -128,8 +128,10 @@ suspend fun launchContainers(tcConfig: TcConfig, proxies: Proxies, dockerConfig:
         Bind(dockerConfig.clientFolder, clientVol, AccessMode.ro)
     )
 
-    val hostConfig = HostConfig().withAutoRemove(true).withPrivileged(true).withCapAdd(Capability.SYS_ADMIN)
+    val hostConfigFull = HostConfig().withAutoRemove(true).withPrivileged(true).withCapAdd(Capability.SYS_ADMIN)
         .withCapAdd(Capability.NET_ADMIN).withBinds(binds).withNetworkMode(dockerConfig.networkName)
+    val hostConfigLimited = HostConfig().withAutoRemove(true).withPrivileged(true).withCapAdd(Capability.SYS_ADMIN)
+        .withCapAdd(Capability.NET_ADMIN).withBinds(binds).withNetworkMode(dockerConfig.networkName).withCpuCount(2)
 
     val totalContainers = dockerConfig.nNodes + dockerConfig.nClients
     val createdChannel: Channel<String> = Channel(totalContainers)
@@ -141,7 +143,7 @@ suspend fun launchContainers(tcConfig: TcConfig, proxies: Proxies, dockerConfig:
                 async(Dispatchers.IO) {
                     it.createServerContainers(
                         nodeContainersInfo[it.shortHost]!!, dockerConfig.imageTag,
-                        hostConfig, volumes, tcConfig.latencyFile, dockerConfig.nNodes, createdChannel
+                        hostConfigFull, hostConfigLimited, volumes, tcConfig.latencyFile, dockerConfig.nNodes, createdChannel
                     )
                 }
             }
@@ -150,7 +152,7 @@ suspend fun launchContainers(tcConfig: TcConfig, proxies: Proxies, dockerConfig:
                 async(Dispatchers.IO) {
                     it.createClientContainers(
                         clientContainersInfo[it.shortHost]!!, dockerConfig.imageTag,
-                        hostConfig, volumes, tcConfig.latencyFile, dockerConfig.nNodes, createdChannel
+                        hostConfigLimited, volumes, tcConfig.latencyFile, dockerConfig.nNodes, createdChannel
                     )
                 }
             }

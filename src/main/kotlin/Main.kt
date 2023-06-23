@@ -149,16 +149,19 @@ suspend fun run(me: String, hosts: List<String>, arguments: Map<String, String>)
     }
 }
 
-fun readLocationsMapFromFile(nodeLocationsFile: String): Map<Int, Pair<Double, Double>> {
+data class Location(val x: Double, val y: Double, val slice: Int)
+
+fun readLocationsMapFromFile(nodeLocationsFile: String): Map<Int, Location> {
     //Open nodeLocationsFile and read line by line
-    val locationsMap = mutableMapOf<Int, Pair<Double, Double>>()
+    val locationsMap = mutableMapOf<Int, Location>()
     val lines = File(nodeLocationsFile).readLines()
     lines.forEach {
         val split = it.split("\\s+".toRegex())
         val id = split[0].toInt()
-        val lat = split[1].toDouble()
-        val lon = split[2].toDouble()
-        locationsMap[id] = Pair(lat, lon)
+        val x = split[1].toDouble()
+        val y = split[2].toDouble()
+        val slice = split[3].toInt()
+        locationsMap[id] = Location(x, y, slice)
     }
     return locationsMap
 }
