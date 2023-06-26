@@ -127,7 +127,7 @@ class DockerProxy(private val host: String) {
 
     fun cp(resource: String, dest: String) {
         val container = listContainers().first()
-        println("Copying $resource from $shortHost ${container.inspect.name} to $dest")
+        //println("Copying $resource from $shortHost ${container.inspect.name} to $dest")
         TarArchiveInputStream(
             client.copyArchiveFromContainerCmd(container.inspect.id, resource).exec()
         ).use { tarStream -> unTar(tarStream, File(dest)) }
@@ -138,10 +138,10 @@ class DockerProxy(private val host: String) {
         while (tis.nextTarEntry.also { next = it } != null) {
             val tarEntry = next!!
             val outputFile = File(destFolder, tarEntry.name)
-            if(tarEntry.isDirectory){
-                 if(!outputFile.exists()){
-                     outputFile.mkdirs()
-                 }
+            if (tarEntry.isDirectory) {
+                if (!outputFile.exists()) {
+                    outputFile.mkdirs()
+                }
             } else {
                 val outputStream = FileOutputStream(outputFile)
                 IOUtils.copy(tis, outputStream)

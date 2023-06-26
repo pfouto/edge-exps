@@ -3,17 +3,17 @@ exps:
   - type: "micro" #name of the exp
     name: "performance"
     skip: false
-    duration: 60
+    duration: 120
     #    tcSetup: [ "tc_1.yaml","tc_2.yaml", "tc_3.yaml" ]
     tcSetup: [ "tc_1.yaml" ]
     #    nodes: [1, 50, 100, 300]
-    nodes: [50]
+    nodes: [ 1, 50, 100, 300 ]
     #    threads: [ 1, 2, 4, 8, 16, 32, 64, 128, 256, 512 ]
-    threads: [ 1 ]
+    threads: [ 1,2,4,8 ]
     #    readPercents: [95, 50, 0]
-    readPercents: [50]
+    readPercents: [ 95, 50,0 ]
     #    dataDistribution: ["global", "local", "distance"]
-    dataDistribution: [ global]
+    dataDistribution: [ local, global ]
     partitions:
       0: "A"
       1: "B"

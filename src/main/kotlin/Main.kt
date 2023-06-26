@@ -6,11 +6,7 @@ import utils.DockerConfig
 import java.io.File
 import java.io.FileInputStream
 import java.net.InetAddress
-import java.nio.file.Files
 import java.nio.file.Paths
-
-var uid: Int = -1
-var gid: Int = -1
 
 fun main(args: Array<String>): Unit = runBlocking {
 
@@ -28,11 +24,6 @@ fun main(args: Array<String>): Unit = runBlocking {
 
     println("I am $me")
     println("Hosts are: $hosts")
-
-    val currentDir = Paths.get(System.getProperty("user.dir"))
-    uid = Files.getAttribute(currentDir, "unix:uid") as Int
-    gid = Files.getAttribute(currentDir, "unix:gid") as Int
-    //println("$uid $gid")
 
     when (command) {
         "setup" -> setup(me, hosts, arguments)
@@ -208,7 +199,7 @@ suspend fun runDyingExp(
 */
 
 suspend fun stopEverything(containers: List<DockerProxy.ContainerProxy>) {
-    print("Stopping processes... ")
+    //print("Stopping processes... ")
     coroutineScope {
         containers.forEach {
             launch(Dispatchers.IO) {
@@ -216,7 +207,7 @@ suspend fun stopEverything(containers: List<DockerProxy.ContainerProxy>) {
             }
         }
     }
-    print("waiting for processes to stop... ")
+    //print("waiting for processes to stop... ")
     coroutineScope {
         containers.distinctBy { it.proxy }.forEach {
             launch(Dispatchers.IO) {
@@ -224,7 +215,7 @@ suspend fun stopEverything(containers: List<DockerProxy.ContainerProxy>) {
             }
         }
     }
-    println("done.")
+    //println("done.")
 
 }
 

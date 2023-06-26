@@ -45,13 +45,14 @@ setup_tc() {
     j=$((j + 1))
 
     targetIp=$(echo ${ips} | cut -d' ' -f${j})
-    echo "--- $targetIp ->  $n"
 
     if [ $((j - 1)) -eq $idx ]; then
+      echo "--- $targetIp ->  ${selfLatency}"
       run_cmd "tc class add dev eth0 parent 1: classid 1:${j}1 htb rate ${out_bandwith}mbit"
       run_cmd "tc qdisc add dev eth0 parent 1:${j}1 netem delay ${selfLatency}ms"
       run_cmd "tc filter add dev eth0 protocol ip parent 1:0 prio 1 u32 match ip dst $targetIp flowid 1:${j}1"
     else
+      echo "--- $targetIp ->  $n"
       run_cmd "tc class add dev eth0 parent 1: classid 1:${j}1 htb rate ${out_bandwith}mbit"
       run_cmd "tc qdisc add dev eth0 parent 1:${j}1 netem delay ${n}ms"
       run_cmd "tc filter add dev eth0 protocol ip parent 1:0 prio 1 u32 match ip dst $targetIp flowid 1:${j}1"

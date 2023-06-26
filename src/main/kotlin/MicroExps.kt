@@ -5,6 +5,7 @@ import com.github.dockerjava.api.model.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
 import kotlinx.serialization.decodeFromString
+import org.apache.commons.io.FileUtils
 import utils.DockerConfig
 import utils.TcConfig
 import java.io.File
@@ -14,8 +15,10 @@ import kotlin.math.sqrt
 
 suspend fun runMicro(expYaml: YamlNode, proxies: Proxies, dockerConfig: DockerConfig) {
     val expConfig = Yaml.default.decodeFromString<MicroConfig>(expYaml.contentToString())
-    println("------ Starting exp ${expConfig.name}")
-
+    val nExps = expConfig.tcSetup.size * expConfig.nodes.size * expConfig.dataDistribution.size *
+            expConfig.readPercents.size * expConfig.threads.size
+    println("------ Starting exp ${expConfig.name} with $nExps experiments ------")
+    var nExp = 0
     expConfig.tcSetup.forEach { tcConfigFile ->
 
         val tcConfig = Yaml.default.decodeFromStream<TcConfig>(FileInputStream("configs/$tcConfigFile"))
@@ -34,19 +37,34 @@ suspend fun runMicro(expYaml: YamlNode, proxies: Proxies, dockerConfig: DockerCo
             expConfig.dataDistribution.forEach { dataDistribution ->
                 expConfig.readPercents.forEach { readPercent ->
                     expConfig.threads.forEach { nThreads ->
+                        nExp++
+                        println(
+                            "---------- Running experiment $nExp/$nExps with $tcConfigFile, $nNodes nodes, " +
+                                    "$dataDistribution data distribution, $readPercent reads, $nThreads threads -------"
+                        )
+
+                        val tcBaseFileNumber = tcConfigFile.split(".")[0].split("_")[1]
+                        val logsPath =
+                            "${expConfig.name}/${tcBaseFileNumber}_${nNodes}_${dataDistribution}_${readPercent}_${nThreads}"
+
+                        FileUtils.deleteDirectory(File("${dockerConfig.logsFolder}/$logsPath"))
+
                         runExp(
                             nodes, clients, locationsMap, expConfig, tcConfigFile, nNodes,
-                            dataDistribution, readPercent, nThreads
+                            dataDistribution, readPercent, nThreads, "/logs/$logsPath"
                         )
                     }
                 }
             }
         }
+
         println("--- Getting logs")
-        allNodes.map { it.proxy }.distinct().forEach { p -> p.cp("/logs/${expConfig.name}", dockerConfig.logsFolder) }
-        clients.map { it.proxy }.distinct().forEach { p -> p.cp("/logs/${expConfig.name}", dockerConfig.logsFolder) }
+        coroutineScope {
+            (allNodes + clients).map { it.proxy }.distinct().forEach { p ->
+                launch(Dispatchers.IO) { p.cp("/logs/${expConfig.name}", dockerConfig.logsFolder) }
+            }
+        }
         removeAllContainers(proxies)
-        println("--- Deleting logs volumes")
         proxies.allProxies.forEach { it.deleteVolume("logs") }
     }
 }
@@ -54,21 +72,8 @@ suspend fun runMicro(expYaml: YamlNode, proxies: Proxies, dockerConfig: DockerCo
 suspend fun runExp(
     nodes: List<DockerProxy.ContainerProxy>, clients: List<DockerProxy.ContainerProxy>,
     locationsMap: Map<Int, Location>, expConfig: MicroConfig, tcConfigFile: String, nNodes: Int,
-    dataDistribution: String, readPercent: Int, nThreads: Int,
+    dataDistribution: String, readPercent: Int, nThreads: Int, logsPath: String,
 ) {
-    val tcBaseFileNumber = tcConfigFile.split(".")[0].split("_")[1]
-    val logsPath =
-        "/logs/${expConfig.name}/${tcBaseFileNumber}_${nNodes}_${dataDistribution}_${readPercent}_${nThreads}"
-
-    nodes[0].proxy.executeCommand(
-        nodes[0].inspect.id, arrayOf("mkdir", "-p", logsPath)
-    )
-
-    println(
-        "---------- Running experiment with $tcConfigFile, $nNodes nodes, " +
-                "$dataDistribution data distribution, $readPercent reads, $nThreads threads -------"
-    )
-
     startAllNodes(nodes, locationsMap, logsPath)
     //println("Waiting for tree to stabilize")
     when (nNodes) {
@@ -87,17 +92,11 @@ suspend fun runExp(
     //println("Waiting for experiment to finish")
     sleep(expConfig.duration * 1000L)
 
-    //println("Stopping clients")
+    print("Stopping clients... ")
     stopEverything(clients)
-    //println("Stopping nodes")
+    print("Stopping nodes... ")
     stopEverything(nodes)
-
-    /*println("Changing ownership")
-
-    nodes[0].proxy.executeCommand(
-        nodes[0].inspect.id,
-        arrayOf("chown", "-R", "$uid:$gid", "${logsPath}/")
-    )*/
+    println("Done")
 }
 
 private suspend fun startAllClients(
@@ -165,7 +164,7 @@ private suspend fun startAllNodes(
     locationsMap: Map<Int, Location>,
     logsPath: String,
 ) {
-    print("Starting nodes... ")
+    //print("Starting nodes... ")
     coroutineScope {
         val dc = nodes[0].inspect.config.hostName!!
         nodes.forEach { container ->
@@ -187,7 +186,7 @@ private suspend fun startAllNodes(
             }
         }
     }
-    println("done.")
+    //println("done.")
 }
 
 
@@ -233,7 +232,7 @@ suspend fun launchContainers(tcConfig: TcConfig, proxies: Proxies, dockerConfig:
     val hostConfigFull = HostConfig().withAutoRemove(true).withPrivileged(true).withCapAdd(Capability.SYS_ADMIN)
         .withCapAdd(Capability.NET_ADMIN).withBinds(binds).withNetworkMode(dockerConfig.networkName)
     val hostConfigLimited = HostConfig().withAutoRemove(true).withPrivileged(true).withCapAdd(Capability.SYS_ADMIN)
-        .withCapAdd(Capability.NET_ADMIN).withBinds(binds).withNetworkMode(dockerConfig.networkName).withCpuCount(2)
+        .withCapAdd(Capability.NET_ADMIN).withBinds(binds).withNetworkMode(dockerConfig.networkName).withCpuQuota(200000)
 
     val totalContainers = dockerConfig.nNodes + dockerConfig.nClients
     val createdChannel: Channel<String> = Channel(totalContainers)
