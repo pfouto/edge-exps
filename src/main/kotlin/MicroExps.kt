@@ -42,7 +42,12 @@ suspend fun runMicro(expYaml: YamlNode, proxies: Proxies, dockerConfig: DockerCo
                 }
             }
         }
+        println("--- Getting logs")
+        allNodes.map { it.proxy }.distinct().forEach { p -> p.cp("/logs/${expConfig.name}", dockerConfig.logsFolder) }
+        clients.map { it.proxy }.distinct().forEach { p -> p.cp("/logs/${expConfig.name}", dockerConfig.logsFolder) }
         removeAllContainers(proxies)
+        println("--- Deleting logs volumes")
+        proxies.allProxies.forEach { it.deleteVolume("logs") }
     }
 }
 
@@ -51,8 +56,9 @@ suspend fun runExp(
     locationsMap: Map<Int, Location>, expConfig: MicroConfig, tcConfigFile: String, nNodes: Int,
     dataDistribution: String, readPercent: Int, nThreads: Int,
 ) {
+    val tcBaseFileNumber = tcConfigFile.split(".")[0].split("_")[1]
     val logsPath =
-        "/logs/${expConfig.name}/$tcConfigFile/$nNodes/$dataDistribution/$readPercent/$nThreads"
+        "/logs/${expConfig.name}/${tcBaseFileNumber}_${nNodes}_${dataDistribution}_${readPercent}_${nThreads}"
 
     nodes[0].proxy.executeCommand(
         nodes[0].inspect.id, arrayOf("mkdir", "-p", logsPath)
@@ -64,31 +70,31 @@ suspend fun runExp(
     )
 
     startAllNodes(nodes, locationsMap, logsPath)
-    println("Waiting for tree to stabilize")
+    //println("Waiting for tree to stabilize")
     when (nNodes) {
         300 -> sleep(30000)
-        50, 100 -> sleep(15000)
+        50, 100 -> sleep(20000)
         1 -> sleep(5000)
         else -> throw Exception("Invalid number of nodes $nNodes")
     }
 
-    println("Starting clients")
+    //println("Starting clients")
     startAllClients(
         clients, locationsMap, expConfig.partitions, dataDistribution,
         nNodes, nThreads, readPercent, logsPath
     )
 
-    println("Waiting for experiment to finish")
+    //println("Waiting for experiment to finish")
     sleep(expConfig.duration * 1000L)
 
-    println("Stopping clients")
+    //println("Stopping clients")
     stopEverything(clients)
-    println("Stopping nodes")
+    //println("Stopping nodes")
     stopEverything(nodes)
 
-    println("Changing ownership")
+    /*println("Changing ownership")
 
-    /*nodes[0].proxy.executeCommand(
+    nodes[0].proxy.executeCommand(
         nodes[0].inspect.id,
         arrayOf("chown", "-R", "$uid:$gid", "${logsPath}/")
     )*/
@@ -218,7 +224,7 @@ suspend fun launchContainers(tcConfig: TcConfig, proxies: Proxies, dockerConfig:
 
     val binds = Binds(
         Bind("/lib/modules", modulesVol),
-        Bind(dockerConfig.logsFolder, logsVol),
+        Bind("logs", logsVol),
         Bind(dockerConfig.tcFolder, tcVol, AccessMode.ro),
         Bind(dockerConfig.serverFolder, serverVol, AccessMode.ro),
         Bind(dockerConfig.clientFolder, clientVol, AccessMode.ro)

@@ -8,10 +8,12 @@ import com.github.dockerjava.core.DockerClientImpl
 import com.github.dockerjava.httpclient5.ApacheDockerHttpClient
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
-import java.io.BufferedReader
-import java.io.InputStreamReader
-import java.lang.IllegalStateException
+import org.apache.commons.compress.archivers.tar.TarArchiveEntry
+import org.apache.commons.compress.archivers.tar.TarArchiveInputStream
+import org.apache.commons.compress.utils.IOUtils
+import java.io.*
 import java.util.*
+
 
 class DockerProxy(private val host: String) {
 
@@ -34,6 +36,16 @@ class DockerProxy(private val host: String) {
         client = DockerClientImpl.getInstance(dockerClientConfig, httpClient)
         client.pingCmd().exec()
         //println("Created DockerProxy for $shortHost")
+    }
+
+    override fun equals(other: Any?): Boolean {
+        if (this === other) return true
+        if (other !is DockerProxy) return false
+        return host == other.host
+    }
+
+    override fun hashCode(): Int {
+        return host.hashCode()
     }
 
     fun reconnect() {
@@ -113,9 +125,34 @@ class DockerProxy(private val host: String) {
             .withDriver("overlay").exec()
     }
 
+    fun cp(resource: String, dest: String) {
+        val container = listContainers().first()
+        println("Copying $resource from $shortHost ${container.inspect.name} to $dest")
+        TarArchiveInputStream(
+            client.copyArchiveFromContainerCmd(container.inspect.id, resource).exec()
+        ).use { tarStream -> unTar(tarStream, File(dest)) }
+    }
+
+    private fun unTar(tis: TarArchiveInputStream, destFolder: File) {
+        var next: TarArchiveEntry?
+        while (tis.nextTarEntry.also { next = it } != null) {
+            val tarEntry = next!!
+            val outputFile = File(destFolder, tarEntry.name)
+            if(tarEntry.isDirectory){
+                 if(!outputFile.exists()){
+                     outputFile.mkdirs()
+                 }
+            } else {
+                val outputStream = FileOutputStream(outputFile)
+                IOUtils.copy(tis, outputStream)
+            }
+        }
+        tis.close()
+    }
+
     fun loadImage(imageLoc: String) {
         //println("Loading image $imageLoc on $shortHost")
-        client.loadImageCmd(java.io.File(imageLoc).inputStream()).exec()
+        client.loadImageCmd(File(imageLoc).inputStream()).exec()
     }
 
     suspend fun createServerContainers(
@@ -208,6 +245,10 @@ class DockerProxy(private val host: String) {
 
     fun close() {
         client.close()
+    }
+
+    fun deleteVolume(s: String) {
+        client.removeVolumeCmd(s).exec()
     }
 
 

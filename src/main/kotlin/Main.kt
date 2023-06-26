@@ -149,6 +149,7 @@ suspend fun run(me: String, hosts: List<String>, arguments: Map<String, String>)
             else -> throw IllegalArgumentException("Unknown experiment type: $expType")
         }
     }
+    println("------------------ EXPERIENCES FINISHED ------------------")
 }
 
 data class Location(val x: Double, val y: Double, val slice: Int)

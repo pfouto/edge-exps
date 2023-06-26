@@ -22,7 +22,7 @@ while read -r ip; do
 done <"$ipsMap"
 
 run_cmd() {
-  echo "$1"
+  #echo "$1"
   eval $1
 }
 
@@ -62,6 +62,10 @@ setup_tc() {
 
 i=0
 echo "Setting up tc emulated network..."
+
+echo "Out bandwith is ${out_bandwith}mbit"
+echo "In bandwith is ${in_bandwith}mbit"
+
 while read -r line; do
   if [ $idx -eq $i ]; then
     setup_tc "$line" "$i"
@@ -70,6 +74,9 @@ while read -r line; do
   i=$((i + 1))
 done <"$latencyMap"
 
+echo "Out bandwith is ${out_bandwith}mbit"
+echo "In bandwith is ${in_bandwith}mbit"
+
 echo "Done."
 
-/bin/sh
+sleep infinity
