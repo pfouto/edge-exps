@@ -10,6 +10,7 @@ import utils.DockerConfig
 import utils.TcConfig
 import java.io.File
 import java.io.FileInputStream
+import kotlin.math.exp
 import kotlin.math.pow
 import kotlin.math.sqrt
 
@@ -74,7 +75,7 @@ suspend fun runExp(
     locationsMap: Map<Int, Location>, expConfig: MicroConfig, tcConfigFile: String, nNodes: Int,
     dataDistribution: String, readPercent: Int, nThreads: Int, logsPath: String,
 ) {
-    startAllNodes(nodes, locationsMap, logsPath)
+    startAllNodes(nodes, locationsMap, logsPath, dataDistribution, expConfig)
     //println("Waiting for tree to stabilize")
     when (nNodes) {
         300 -> sleep(30000)
@@ -84,10 +85,7 @@ suspend fun runExp(
     }
 
     //println("Starting clients")
-    startAllClients(
-        clients, locationsMap, expConfig.partitions, dataDistribution,
-        nNodes, nThreads, readPercent, logsPath
-    )
+    startAllClients(clients, locationsMap, dataDistribution, nNodes, nThreads, readPercent, logsPath, expConfig)
 
     //println("Waiting for experiment to finish")
     sleep(expConfig.duration * 1000L)
@@ -100,8 +98,9 @@ suspend fun runExp(
 }
 
 private suspend fun startAllClients(
-    clients: List<DockerProxy.ContainerProxy>, locationsMap: Map<Int, Location>, partitions: Map<Int, String>,
+    clients: List<DockerProxy.ContainerProxy>, locationsMap: Map<Int, Location>,
     dataDistribution: String, nNodes: Int, nThreads: Int, readPercent: Int, logsPath: String,
+    expConfig: MicroConfig,
 ) {
     coroutineScope {
         clients.forEach { container ->
@@ -110,6 +109,7 @@ private suspend fun startAllClients(
             val closestNode = closestActiveNode(clientNumber, locationsMap, nNodes)
             val clientNode = "node-${closestNode.first}"
             val nodeSlice = closestNode.second.slice
+            val partitions = expConfig.partitions
             val cmd = mutableListOf(
                 "./start.sh",
                 "$logsPath/$hostname",
@@ -118,6 +118,7 @@ private suspend fun startAllClients(
                 "-p", "readproportion=${readPercent / 100.0}",
                 "-p", "updateproportion=${(100 - readPercent) / 100.0}",
             )
+
             when (dataDistribution) {
                 "global" -> {
                     cmd.add("-p")
@@ -137,6 +138,31 @@ private suspend fun startAllClients(
                     cmd.add("workload=site.ycsb.workloads.EdgeFixedWorkload")
                     cmd.add("-p")
                     cmd.add("tables=$tables")
+                }
+
+                "periodic" -> {
+                    val localTables = mutableListOf<String>()
+                    val remoteTables = mutableListOf<String>()
+                    if(nodeSlice != -1 ){
+                        localTables.add(partitions[nodeSlice]!!)
+                        localTables.add(partitions[(nodeSlice + 1) % partitions.size]!!)
+                        localTables.add(partitions[if (nodeSlice - 1 < 0) partitions.size - 1 else nodeSlice - 1]!!)
+                        remoteTables.addAll(partitions.values)
+                        remoteTables.removeAll(localTables)
+                    } else {
+                        localTables.addAll(partitions.values)
+                        remoteTables.addAll(partitions.values)
+                    }
+                    cmd.add("-p")
+                    cmd.add("workload=site.ycsb.workloads.EdgePeriodicWorkload")
+                    cmd.add("-p")
+                    cmd.add("local_tables=${localTables.joinToString(",")}")
+                    cmd.add("-p")
+                    cmd.add("remote_tables=${remoteTables.joinToString(",")}")
+                    cmd.add("-p")
+                    cmd.add("remote_duration=$expConfig.periodicRemoteDuration")
+                    cmd.add("-p")
+                    cmd.add("remote_interval=$expConfig.periodicRemoteInterval")
                 }
 
                 else -> throw Exception("Invalid data distribution $dataDistribution")
@@ -163,6 +189,8 @@ private suspend fun startAllNodes(
     nodes: List<DockerProxy.ContainerProxy>,
     locationsMap: Map<Int, Location>,
     logsPath: String,
+    dataDistribution: String,
+    expConfig: MicroConfig,
 ) {
     //print("Starting nodes... ")
     coroutineScope {
@@ -171,16 +199,17 @@ private suspend fun startAllNodes(
             val hostname = container.inspect.config.hostName!!
             val nodeNumber = hostname.split("-")[1].toInt()
             val location = locationsMap[nodeNumber]!!
-            val cmd = listOf(
-                "./start.sh",
-                "$logsPath/$hostname",
-                "hostname=$hostname",
-                "region=eu",
-                "datacenter=$dc",
-                "location_x=${location.x}",
-                "location_y=${location.y}",
-                "tree_builder_nnodes=${nodes.size}",
+            val cmd = mutableListOf(
+                "./start.sh", "$logsPath/$hostname", "hostname=$hostname", "region=eu", "datacenter=$dc",
+                "location_x=${location.x}", "location_y=${location.y}", "tree_builder_nnodes=${nodes.size}",
             )
+            if(dataDistribution == "periodic") {
+                val gcThreshold = (expConfig.periodicRemoteDuration * 1.5).toLong()
+                cmd.add("gc_threshold=$gcThreshold")
+                cmd.add("gc_period=${gcThreshold/5}")
+            }
+
+
             launch(Dispatchers.IO) {
                 container.proxy.executeCommand(container.inspect.id, cmd.toTypedArray(), "/server")
             }
@@ -232,7 +261,8 @@ suspend fun launchContainers(tcConfig: TcConfig, proxies: Proxies, dockerConfig:
     val hostConfigFull = HostConfig().withAutoRemove(true).withPrivileged(true).withCapAdd(Capability.SYS_ADMIN)
         .withCapAdd(Capability.NET_ADMIN).withBinds(binds).withNetworkMode(dockerConfig.networkName)
     val hostConfigLimited = HostConfig().withAutoRemove(true).withPrivileged(true).withCapAdd(Capability.SYS_ADMIN)
-        .withCapAdd(Capability.NET_ADMIN).withBinds(binds).withNetworkMode(dockerConfig.networkName).withCpuQuota(200000)
+        .withCapAdd(Capability.NET_ADMIN).withBinds(binds).withNetworkMode(dockerConfig.networkName)
+        .withCpuQuota(200000)
 
     val totalContainers = dockerConfig.nNodes + dockerConfig.nClients
     val createdChannel: Channel<String> = Channel(totalContainers)

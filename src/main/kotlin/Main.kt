@@ -6,7 +6,6 @@ import utils.DockerConfig
 import java.io.File
 import java.io.FileInputStream
 import java.net.InetAddress
-import java.nio.file.Paths
 
 fun main(args: Array<String>): Unit = runBlocking {
 
