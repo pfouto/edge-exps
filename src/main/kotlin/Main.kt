@@ -1,5 +1,7 @@
 import com.charleskorn.kaml.*
+import fail.runFail
 import kotlinx.coroutines.*
+import micro.runMicro
 import org.apache.commons.lang3.exception.ExceptionUtils
 import org.apache.hc.client5.http.HttpHostConnectException
 import utils.DockerConfig
@@ -135,6 +137,9 @@ suspend fun run(me: String, hosts: List<String>, arguments: Map<String, String>)
         when(val expType = it.yamlMap.get<YamlScalar>("type")!!.content) {
             "micro" -> {
                 runMicro(it, proxies, dockerConfig)
+            }
+            "fail" -> {
+                runFail(it, proxies, dockerConfig)
             }
             else -> throw IllegalArgumentException("Unknown experiment type: $expType")
         }

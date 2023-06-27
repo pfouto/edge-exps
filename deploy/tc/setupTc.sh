@@ -10,6 +10,8 @@ selfLatency=$4
 out_bandwith=$5
 in_bandwith=$5
 
+latency_multiplier=$6
+
 ipsMap="tc/serverIps.txt"
 
 #bandwith=$2
@@ -47,14 +49,16 @@ setup_tc() {
     targetIp=$(echo ${ips} | cut -d' ' -f${j})
 
     if [ $((j - 1)) -eq $idx ]; then
-      echo "--- $targetIp ->  ${selfLatency}"
+      latency=$(echo "$selfLatency * $latency_multiplier" | bc)
+      echo "--- $targetIp ->  ${latency}"
       run_cmd "tc class add dev eth0 parent 1: classid 1:${j}1 htb rate ${out_bandwith}mbit"
-      run_cmd "tc qdisc add dev eth0 parent 1:${j}1 netem delay ${selfLatency}ms"
+      run_cmd "tc qdisc add dev eth0 parent 1:${j}1 netem delay ${latency}ms"
       run_cmd "tc filter add dev eth0 protocol ip parent 1:0 prio 1 u32 match ip dst $targetIp flowid 1:${j}1"
     else
-      echo "--- $targetIp ->  $n"
+      latency=$(echo "$n * $latency_multiplier" | bc)
+      echo "--- $targetIp ->  ${latency}"
       run_cmd "tc class add dev eth0 parent 1: classid 1:${j}1 htb rate ${out_bandwith}mbit"
-      run_cmd "tc qdisc add dev eth0 parent 1:${j}1 netem delay ${n}ms"
+      run_cmd "tc qdisc add dev eth0 parent 1:${j}1 netem delay ${latency}ms"
       run_cmd "tc filter add dev eth0 protocol ip parent 1:0 prio 1 u32 match ip dst $targetIp flowid 1:${j}1"
     fi
 

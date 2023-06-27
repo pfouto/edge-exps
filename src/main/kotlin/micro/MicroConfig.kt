@@ -1,3 +1,5 @@
+package micro
+
 import kotlinx.serialization.Serializable
 
 @Serializable

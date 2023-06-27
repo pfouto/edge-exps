@@ -2,6 +2,7 @@ import com.github.dockerjava.api.DockerClient
 import com.github.dockerjava.api.async.ResultCallback
 import com.github.dockerjava.api.command.InspectContainerResponse
 import com.github.dockerjava.api.exception.DockerException
+import com.github.dockerjava.api.exception.NotFoundException
 import com.github.dockerjava.api.model.*
 import com.github.dockerjava.core.DefaultDockerClientConfig
 import com.github.dockerjava.core.DockerClientImpl
@@ -128,9 +129,15 @@ class DockerProxy(private val host: String) {
     fun cp(resource: String, dest: String) {
         val container = listContainers().first()
         //println("Copying $resource from $shortHost ${container.inspect.name} to $dest")
-        TarArchiveInputStream(
-            client.copyArchiveFromContainerCmd(container.inspect.id, resource).exec()
-        ).use { tarStream -> unTar(tarStream, File(dest)) }
+        try {
+            val exec = client.copyArchiveFromContainerCmd(container.inspect.id, resource).exec()
+            TarArchiveInputStream(exec).use { tarStream -> unTar(tarStream, File(dest)) }
+        } catch (e: NotFoundException){
+            if(e.httpStatus == 404){
+                println("No logs in $shortHost ${container.inspect.name}")
+            } else
+                throw e
+        }
     }
 
     private fun unTar(tis: TarArchiveInputStream, destFolder: File) {
@@ -164,12 +171,12 @@ class DockerProxy(private val host: String) {
             if (number == 0)
                 createContainer(
                     "node", number, ip, imageTag, hostConfigFirst, volumes,
-                    latencyFile, nServers, channel, 0, 10000
+                    latencyFile, nServers, channel, 0, 10000, 1
                 )
             else
                 createContainer(
                     "node", number, ip, imageTag, hostConfigRest, volumes, latencyFile,
-                    nServers, channel, 0, 1000
+                    nServers, channel, 0, 1000, 1
                 )
         }
     }
@@ -182,7 +189,7 @@ class DockerProxy(private val host: String) {
         pairs.forEach { (number, ip) ->
             createContainer(
                 "client", number, ip, imageTag, hostConfig, volumes, latencyFile,
-                nServers, channel, 5, 10000
+                nServers, channel, 5, 10000, 2
             )
         }
     }
@@ -190,6 +197,7 @@ class DockerProxy(private val host: String) {
     private suspend fun createContainer(
         baseName: String, id: Int, ip: String, image: String, hostConfig: HostConfig, volumes: Volumes,
         latencyFile: String, nServers: Int, channel: Channel<String>, selfLatency: Int, bandwidth: Int,
+        latencyMultiplier: Int
     ) {
         //println("Creating container $id on $shortHost")
         val name = "$baseName-$id"
@@ -198,8 +206,8 @@ class DockerProxy(private val host: String) {
         val cId = client.createContainerCmd(image).withName(name).withHostName(name).withTty(true)
             .withAttachStderr(false).withAttachStdout(false)
             .withAttachStdin(false).withHostConfig(hostConfig).withVolumes(volumes.volumes.toList())
-            .withCmd(id.toString(), latencyFile, nServers.toString(), selfLatency.toString(), bandwidth.toString())
-            .withIpv4Address(ip).exec()
+            .withCmd(id.toString(), latencyFile, nServers.toString(), selfLatency.toString(), bandwidth.toString(),
+                latencyMultiplier.toString()).withIpv4Address(ip).exec()
 
         client.startContainerCmd(cId.id).exec()
 

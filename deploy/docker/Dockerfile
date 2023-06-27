@@ -4,6 +4,7 @@ LABEL maintainer="Pedro Ákos Costa <pah.costa@campus.fct.unl.pt>, Pedro Fouto <
 RUN apk add --no-cache \
                 bind-tools \
                 iproute2 \
-                nload
+                nload \
+                bc
 
 ENTRYPOINT ["/tc/setupTc.sh"]
