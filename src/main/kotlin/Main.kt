@@ -86,6 +86,7 @@ suspend fun setup(me: String, hosts: List<String>, arguments: Map<String, String
     if (proxies.dcProxy.amSwarmManager() && proxies.dcProxy.getSwarmMembers().size == proxies.allProxies.size) {
         println("Swarm already exists, will not create it")
         removeAllContainers(proxies)
+        proxies.allProxies.forEach { it.deleteVolume("logs")}
     } else {
         purge(me, hosts)
         println("--- Restarting docker service")
