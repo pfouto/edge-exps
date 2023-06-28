@@ -77,7 +77,7 @@ class DockerProxy(private val host: String) {
             client.leaveSwarmCmd().withForceEnabled(true).exec()
         } catch (e: DockerException) {
             if (e.httpStatus == 503)
-                println("Swarm already left on $shortHost")
+                //println("Swarm already left on $shortHost")
             else
                 throw e
         }
@@ -134,7 +134,7 @@ class DockerProxy(private val host: String) {
             TarArchiveInputStream(exec).use { tarStream -> unTar(tarStream, File(dest)) }
         } catch (e: NotFoundException){
             if(e.httpStatus == 404){
-                println("No logs in $shortHost ${container.inspect.name}")
+                //println("No logs in $shortHost ${container.inspect.name}")
             } else
                 throw e
         }
@@ -256,7 +256,12 @@ class DockerProxy(private val host: String) {
     }
 
     fun deleteVolume(s: String) {
-        client.removeVolumeCmd(s).exec()
+        try {
+            client.removeVolumeCmd(s).exec()
+        } catch (e: NotFoundException) {
+            if (e.httpStatus != 404)
+                throw e
+        }
     }
 
 
@@ -324,7 +329,8 @@ class DockerProxy(private val host: String) {
                     errorJob.join() // wait for error job to finish
 
                     process.waitFor()
-                    println("$host exit value is ${process.exitValue()}")
+                    if(process.exitValue() != 0)
+                        println("$host exit value is ${process.exitValue()}")
                     process.exitValue()
                 }
             }

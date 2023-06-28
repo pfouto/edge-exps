@@ -6,10 +6,10 @@ import kotlin.math.sin
 import kotlin.math.sqrt
 import kotlin.random.Random
 
-const val nPoints = 300
+const val nPoints = 200
 const val circleRadius = 300
 const val seed = 3
-const val minDist = 25
+const val minDist = 30
 const val nSlices = 8
 
 val dec = DecimalFormat("#,###.##")

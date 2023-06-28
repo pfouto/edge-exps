@@ -16,4 +16,5 @@ data class MicroConfig(
     val readPercents: List<Int>,
     val periodicRemoteInterval: Long,
     val periodicRemoteDuration: Long,
+    val threadLimitPerNNodes: Map<Int, Int>
 )

@@ -46,32 +46,38 @@ suspend fun runFail(expYaml: YamlNode, proxies: Proxies, dockerConfig: DockerCon
 
             expConfig.dataDistribution.forEach { dataDistribution ->
                 expConfig.readPercents.forEach { readPercent ->
-                    expConfig.failPercents.forEach { failPercent ->
+                    expConfig.failPercents.forEach thread@{ failPercent ->
                         nExp++
-                        println(
-                            "---------- Running experiment $nExp/$nExps with $tcConfigFile, $nNodes nodes, " +
-                                    "$dataDistribution data distribution, $readPercent reads, $failPercent fail percent -------"
-                        )
-
                         val tcBaseFileNumber = tcConfigFile.split(".")[0].split("_")[1]
                         val logsPath =
                             "${expConfig.name}/${tcBaseFileNumber}_${nNodes}_${dataDistribution}_${readPercent}_${failPercent}"
 
-                        FileUtils.deleteDirectory(File("${dockerConfig.logsFolder}/$logsPath"))
+                        if (!File("${dockerConfig.logsFolder}/$logsPath").exists()) {
+                            println(
+                                "---------- Running experiment $nExp/$nExps with $tcConfigFile, $nNodes nodes, " +
+                                        "$dataDistribution data distribution, $readPercent reads, $failPercent fail percent -------"
+                            )
+                        } else {
+                            println(
+                                "---------- Skipping experiment $nExp/$nExps with $tcConfigFile, $nNodes nodes, " +
+                                        "$dataDistribution data distribution, $readPercent reads, $failPercent fail percent -------"
+                            )
+                            return@thread
+                        }
 
                         runExp(
                             nodes, clients, locationsMap, expConfig, tcConfigFile, nNodes,
                             dataDistribution, readPercent, failPercent, "/logs/$logsPath"
                         )
+                        FileUtils.deleteDirectory(File("${dockerConfig.logsFolder}/$logsPath"))
+                        println("Getting logs")
+                        coroutineScope {
+                            (allNodes + clients).map { it.proxy }.distinct().forEach { p ->
+                                launch(Dispatchers.IO) { p.cp("/logs/${expConfig.name}", dockerConfig.logsFolder) }
+                            }
+                        }
                     }
                 }
-            }
-        }
-
-        println("--- Getting logs")
-        coroutineScope {
-            (allNodes + clients).map { it.proxy }.distinct().forEach { p ->
-                launch(Dispatchers.IO) { p.cp("/logs/${expConfig.name}", dockerConfig.logsFolder) }
             }
         }
         removeAllContainers(proxies)
@@ -87,21 +93,21 @@ private suspend fun runExp(
     startAllNodes(nodes, locationsMap, logsPath)
     //println("Waiting for tree to stabilize")
     when (nNodes) {
-        300 -> sleep(30000)
-        50, 100 -> sleep(20000)
+        200 -> sleep(25000)
+        20 -> sleep(15000)
         else -> throw Exception("Invalid number of nodes $nNodes")
     }
 
     //println("Starting clients")
     startAllClients(clients, locationsMap, dataDistribution, nNodes, readPercent, logsPath, expConfig)
 
-    sleep(expConfig.failAt* 1000L)
+    sleep(expConfig.failAt * 1000L)
 
     println("Killing nodes")
     val nodesToKill = nodes.subList(1, nodes.size).shuffled().take((failPercent / 100.0 * nNodes).toInt())
     stopEverything(nodesToKill)
     //println("Waiting for experiment to finish")
-    sleep((expConfig.duration-expConfig.failAt) * 1000L)
+    sleep((expConfig.duration - expConfig.failAt) * 1000L)
 
     print("Stopping clients... ")
     stopEverything(clients)
@@ -127,6 +133,7 @@ private suspend fun startAllClients(
                 "./start.sh",
                 "$logsPath/$hostname",
                 "-threads", "${expConfig.threads}",
+                "-p", "db=EdgeMigratingClient",
                 "-p", "host=$clientNode",
                 "-p", "readproportion=${readPercent / 100.0}",
                 "-p", "updateproportion=${(100 - readPercent) / 100.0}",
@@ -152,6 +159,7 @@ private suspend fun startAllClients(
                     cmd.add("-p")
                     cmd.add("tables=$tables")
                 }
+
                 else -> throw Exception("Invalid data distribution $dataDistribution")
             }
             launch(Dispatchers.IO) {

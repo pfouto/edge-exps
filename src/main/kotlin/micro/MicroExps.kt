@@ -38,7 +38,6 @@ suspend fun runMicro(expYaml: YamlNode, proxies: Proxies, dockerConfig: DockerCo
             proxies.clientProxies.flatMap { it.listContainers() }.sortedBy { it.inspect.name.split("-")[1].toInt() }
 
         val locationsMap = readLocationsMapFromFile("tc/${tcConfig.nodesFile}")
-        var anyExp = false
         expConfig.nodes.forEach { nNodes ->
             val nodes = allNodes.take(nNodes)
             if (nodes.size < nNodes)
@@ -46,11 +45,19 @@ suspend fun runMicro(expYaml: YamlNode, proxies: Proxies, dockerConfig: DockerCo
 
             expConfig.dataDistribution.forEach { dataDistribution ->
                 expConfig.readPercents.forEach { readPercent ->
-                    expConfig.threads.forEach  thread@{ nThreads ->
+                    expConfig.threads.forEach thread@{ nThreads ->
                         nExp++
                         val tcBaseFileNumber = tcConfigFile.split(".")[0].split("_")[1]
                         val logsPath =
-                            "${expConfig.name}/${tcBaseFileNumber}_${nNodes}_${dataDistribution}_${readPercent}_${nThreads}"
+                            "${expConfig.name}/${nNodes}n_${dataDistribution}_${readPercent}r_${nThreads}t_${tcBaseFileNumber}"
+
+                        if (expConfig.threadLimitPerNNodes[nNodes] != null && nThreads > expConfig.threadLimitPerNNodes[nNodes]!!) {
+                            println(
+                                "---------- Skipping by limiter $nExp/$nExps with $tcConfigFile, $nNodes nodes, " +
+                                        "$dataDistribution data distribution, $readPercent reads, $nThreads threads -------"
+                            )
+                            return@thread
+                        }
 
                         if (!File("${dockerConfig.logsFolder}/$logsPath").exists()) {
                             println(
@@ -59,31 +66,36 @@ suspend fun runMicro(expYaml: YamlNode, proxies: Proxies, dockerConfig: DockerCo
                             )
                         } else {
                             println(
-                                "---------- Skipping experiment $nExp/$nExps with $tcConfigFile, $nNodes nodes, " +
+                                "---------- Skipping existing $nExp/$nExps with $tcConfigFile, $nNodes nodes, " +
                                         "$dataDistribution data distribution, $readPercent reads, $nThreads threads -------"
                             )
                             return@thread
                         }
 
-                        anyExp = true
 
                         runExp(
                             nodes, clients, locationsMap, expConfig, tcConfigFile, nNodes,
                             dataDistribution, readPercent, nThreads, "/logs/$logsPath"
                         )
                         FileUtils.deleteDirectory(File("${dockerConfig.logsFolder}/$logsPath"))
-                    }
+
+                        println("Getting logs")
+                        coroutineScope {
+                            (allNodes + clients).map { it.proxy }.distinct().forEach { p ->
+                                launch(Dispatchers.IO) {
+                                    p.cp(
+                                        "/logs/${logsPath}",
+                                        "${dockerConfig.logsFolder}/${expConfig.name}"
+                                    )
+                                }
+                            }
+                        }
+
+                    } //End thread
                 }
             }
         }
-        if(anyExp) {
-            println("--- Getting logs")
-            coroutineScope {
-                (allNodes + clients).map { it.proxy }.distinct().forEach { p ->
-                    launch(Dispatchers.IO) { p.cp("/logs/${expConfig.name}", dockerConfig.logsFolder) }
-                }
-            }
-        }
+
         removeAllContainers(proxies)
         proxies.allProxies.forEach { it.deleteVolume("logs") }
     }
@@ -97,8 +109,8 @@ private suspend fun runExp(
     startAllNodes(nodes, locationsMap, logsPath, dataDistribution, expConfig)
     //println("Waiting for tree to stabilize")
     when (nNodes) {
-        300 -> sleep(30000)
-        50, 100 -> sleep(20000)
+        200 -> sleep(25000)
+        20 -> sleep(15000)
         1 -> sleep(5000)
         else -> throw Exception("Invalid number of nodes $nNodes")
     }
@@ -162,7 +174,7 @@ private suspend fun startAllClients(
                 "periodic" -> {
                     val localTables = mutableListOf<String>()
                     val remoteTables = mutableListOf<String>()
-                    if(nodeSlice != -1 ){
+                    if (nodeSlice != -1) {
                         localTables.add(partitions[nodeSlice]!!)
                         localTables.add(partitions[(nodeSlice + 1) % partitions.size]!!)
                         localTables.add(partitions[if (nodeSlice - 1 < 0) partitions.size - 1 else nodeSlice - 1]!!)
@@ -182,6 +194,10 @@ private suspend fun startAllClients(
                     cmd.add("remote_duration=${expConfig.periodicRemoteDuration}")
                     cmd.add("-p")
                     cmd.add("remote_interval=${expConfig.periodicRemoteInterval}")
+                    cmd.add("-p")
+                    cmd.add("recordcount=1000")
+                    cmd.add("-p")
+                    cmd.add("status.interval=1")
                 }
 
                 else -> throw Exception("Invalid data distribution $dataDistribution")
@@ -222,10 +238,10 @@ private suspend fun startAllNodes(
                 "./start.sh", "$logsPath/$hostname", "hostname=$hostname", "region=eu", "datacenter=$dc",
                 "location_x=${location.x}", "location_y=${location.y}", "tree_builder_nnodes=${nodes.size}",
             )
-            if(dataDistribution == "periodic") {
+            if (dataDistribution == "periodic") {
                 val gcThreshold = (expConfig.periodicRemoteDuration * 1.5).toLong()
                 cmd.add("gc_threshold=$gcThreshold")
-                cmd.add("gc_period=${gcThreshold/5}")
+                cmd.add("gc_period=${gcThreshold / 5}")
             }
 
 

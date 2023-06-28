@@ -1,10 +1,10 @@
 ## setup information
-nNodes: 300
-maxNodesPerMachine: 50
+nNodes: 200
+maxNodesPerMachine: 40
 
 #nClients: 299
-nClients: 299
-maxClientsPerMachine: 150
+nClients: 199
+maxClientsPerMachine: 67
 
 imageLoc: "/home/pfouto/edge/exps/docker/tc.tar"
 imageTag: "tc:0.1"

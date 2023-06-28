@@ -250,6 +250,7 @@ suspend fun purge(me: String, hosts: List<String>) {
         clients.map {
             async(Dispatchers.IO) {
                 it.removeAllContainers()
+                it.deleteVolume("logs")
                 it.leaveSwarm()
             }
         }.joinAll()
