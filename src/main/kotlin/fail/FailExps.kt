@@ -105,7 +105,7 @@ private suspend fun runExp(
 
 
     val nodesToKill = nodes.subList(1, nodes.size).shuffled().take((failPercent / 100.0 * nNodes).toInt())
-    println("Killing nodes ${nodesToKill.map { it.inspect.name }}")
+    println("Killing ${nodesToKill.size} nodes")
     coroutineScope {
         nodesToKill.forEach {
             launch(Dispatchers.IO) {

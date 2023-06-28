@@ -5,15 +5,15 @@ exps:
     skip: false
     duration: 120
     #    tcSetup: [ "tc_1.yaml","tc_2.yaml", "tc_3.yaml" ]
-    tcSetup: [ "tc_1.yaml" ]
+    tcSetup: [ "tc_1.yaml", "tc_2.yaml", "tc_3.yaml" ]
     #    nodes: [1, 20, 200]
     nodes: [ 1, 20, 200 ]
     #    dataDistribution: ["global", "local"]
     dataDistribution: [ "global", "local" ]
     #    readPercents: [95, 50, 0]
-    readPercents: [ 95 ]
+    readPercents: [ 50, 95 ]
     #    threads: [ 1, 2, 4, 8, 16, 32, 64, 128, 256, 512 ]
-    threads: [ 16 ]
+    threads: [ 1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024 ]
     periodicRemoteInterval: 30000
     periodicRemoteDuration: 10000
 

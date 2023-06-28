@@ -3,17 +3,17 @@ exps:
   - type: "fails" #name of the exp
     name: "fails"
     skip: false
-    duration: 40
-    failAt: 20
+    duration: 60
+    failAt: 40
     # failPercents: [ 10, 25, 50]
-    failPercents: [ 10, 50 ]
+    failPercents: [ 10, 25, 50]
     #    tcSetup: [ "tc_1.yaml","tc_2.yaml", "tc_3.yaml" ]
-    tcSetup: [ "tc_1.yaml" ]
+    tcSetup: [ "tc_1.yaml", "tc_2.yaml", "tc_3.yaml" ]
     #    nodes: [1, 50, 100, 300]
     nodes: [ 20, 200 ]
     #    threads: [ 1, 2, 4, 8, 16, 32, 64, 128, 256, 512 ]
     # threads: 16
-    threads: 1
+    threads: 16
     limit: 50
     #    readPercents: [95, 50, 0]
     readPercents: [ 95 ]
