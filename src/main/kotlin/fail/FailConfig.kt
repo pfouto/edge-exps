@@ -16,5 +16,6 @@ data class FailConfig(
     val dataDistribution: List<String>,
     val partitions: Map<Int, String>,
     val threads: Int,
+    val limit: Int,
     val readPercents: List<Int>,
 )

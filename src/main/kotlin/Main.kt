@@ -138,7 +138,7 @@ suspend fun run(me: String, hosts: List<String>, arguments: Map<String, String>)
             "micro" -> {
                 runMicro(it, proxies, dockerConfig)
             }
-            "fail" -> {
+            "fails" -> {
                 runFail(it, proxies, dockerConfig)
             }
             else -> throw IllegalArgumentException("Unknown experiment type: $expType")
@@ -163,44 +163,6 @@ fun readLocationsMapFromFile(nodeLocationsFile: String): Map<Int, Location> {
     }
     return locationsMap
 }
-
-/*
-suspend fun runDyingExp(
-    exp: Exp,
-    containers: List<DockerProxy.ContainerProxy>,
-    locationsMap: Map<Int, Pair<Double, Double>>,
-) {
-    val neededContainers = exp.nodes.values.sum()
-    if (containers.size < neededContainers)
-        throw IllegalStateException("Not enough containers to run experiment, found ${containers.size} but need $neededContainers")
-
-    val runningContainers = mutableListOf<DockerProxy.ContainerProxy>()
-    val runningContainersPerRegion = mutableMapOf<String, MutableList<DockerProxy.ContainerProxy>>()
-    startAllProcesses(exp, containers, runningContainers, runningContainersPerRegion, locationsMap)
-
-    for (step in exp.steps) {
-        println("Next step: $step")
-        sleep(step.delay * 1000L)
-        if (step.kill != null) {
-            coroutineScope {
-                println("Killing nodes")
-                for (region in step.kill) {
-                    for (node in region.value) {
-                        val container = runningContainersPerRegion[region.key]!![node]
-                        runningContainers.remove(container)
-                        launch(Dispatchers.IO) {
-                            container.proxy.executeCommand(container.inspect.id, arrayOf("killall", "java"))
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    stopEverything(runningContainers)
-}
-
-*/
 
 suspend fun stopEverything(containers: List<DockerProxy.ContainerProxy>) {
     //print("Stopping processes... ")

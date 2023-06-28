@@ -50,7 +50,7 @@ suspend fun runFail(expYaml: YamlNode, proxies: Proxies, dockerConfig: DockerCon
                         nExp++
                         val tcBaseFileNumber = tcConfigFile.split(".")[0].split("_")[1]
                         val logsPath =
-                            "${expConfig.name}/${tcBaseFileNumber}_${nNodes}_${dataDistribution}_${readPercent}_${failPercent}"
+                            "${expConfig.name}/${nNodes}n_${dataDistribution}_${readPercent}r_${failPercent}f_${tcBaseFileNumber}"
 
                         if (!File("${dockerConfig.logsFolder}/$logsPath").exists()) {
                             println(
@@ -103,10 +103,18 @@ private suspend fun runExp(
 
     sleep(expConfig.failAt * 1000L)
 
-    println("Killing nodes")
+
     val nodesToKill = nodes.subList(1, nodes.size).shuffled().take((failPercent / 100.0 * nNodes).toInt())
-    stopEverything(nodesToKill)
-    //println("Waiting for experiment to finish")
+    println("Killing nodes ${nodesToKill.map { it.inspect.name }}")
+    coroutineScope {
+        nodesToKill.forEach {
+            launch(Dispatchers.IO) {
+                it.proxy.executeCommand(it.inspect.id, arrayOf("killall", "java"))
+            }
+        }
+    }
+
+    println("Waiting for experiment to finish")
     sleep((expConfig.duration - expConfig.failAt) * 1000L)
 
     print("Stopping clients... ")
@@ -133,11 +141,15 @@ private suspend fun startAllClients(
                 "./start.sh",
                 "$logsPath/$hostname",
                 "-threads", "${expConfig.threads}",
+                "-target", "${expConfig.limit}",
+                "-p", "timeout_millis=10000",
                 "-p", "db=EdgeMigratingClient",
                 "-p", "host=$clientNode",
                 "-p", "readproportion=${readPercent / 100.0}",
                 "-p", "updateproportion=${(100 - readPercent) / 100.0}",
-            )
+                "-p", "status.interval=1",
+
+                )
 
             when (dataDistribution) {
                 "global" -> {
@@ -145,19 +157,6 @@ private suspend fun startAllClients(
                     cmd.add("workload=site.ycsb.workloads.EdgeFixedWorkload")
                     cmd.add("-p")
                     cmd.add("tables=${partitions.values.joinToString(",")}")
-                }
-
-                "local" -> {
-
-                    val tables = if (nodeSlice != -1) "${partitions[nodeSlice]!!}," +
-                            "${partitions[(nodeSlice + 1) % partitions.size]}," +
-                            "${partitions[if (nodeSlice - 1 < 0) partitions.size - 1 else nodeSlice - 1]}"
-                    else partitions.values.joinToString(",")
-
-                    cmd.add("-p")
-                    cmd.add("workload=site.ycsb.workloads.EdgeFixedWorkload")
-                    cmd.add("-p")
-                    cmd.add("tables=$tables")
                 }
 
                 else -> throw Exception("Invalid data distribution $dataDistribution")
