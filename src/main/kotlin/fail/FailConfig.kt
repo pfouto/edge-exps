@@ -18,4 +18,5 @@ data class FailConfig(
     val threads: Int,
     val limit: Int,
     val readPercents: List<Int>,
+    val clientPersistence: List<Int>,
 )

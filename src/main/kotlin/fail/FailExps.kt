@@ -26,7 +26,7 @@ import kotlin.math.sqrt
 suspend fun runFail(expYaml: YamlNode, proxies: Proxies, dockerConfig: DockerConfig) {
     val expConfig = Yaml.default.decodeFromString<FailConfig>(expYaml.contentToString())
     val nExps = expConfig.tcSetup.size * expConfig.nodes.size * expConfig.dataDistribution.size *
-            expConfig.readPercents.size * expConfig.failPercents.size
+            expConfig.readPercents.size * expConfig.failPercents.size * expConfig.clientPersistence.size
     println("------ Starting exp ${expConfig.name} with $nExps experiments ------")
     var nExp = 0
     expConfig.tcSetup.forEach { tcConfigFile ->
@@ -46,37 +46,47 @@ suspend fun runFail(expYaml: YamlNode, proxies: Proxies, dockerConfig: DockerCon
 
             expConfig.dataDistribution.forEach { dataDistribution ->
                 expConfig.readPercents.forEach { readPercent ->
-                    expConfig.failPercents.forEach thread@{ failPercent ->
-                        nExp++
-                        val tcBaseFileNumber = tcConfigFile.split(".")[0].split("_")[1]
-                        val logsPath =
-                            "${expConfig.name}/${nNodes}n_${dataDistribution}_${readPercent}r_${failPercent}f_${tcBaseFileNumber}"
+                    expConfig.clientPersistence.forEach { persistence ->
+                        expConfig.failPercents.forEach thread@{ failPercent ->
+                            nExp++
+                            val tcBaseFileNumber = tcConfigFile.split(".")[0].split("_")[1]
+                            val logsPath =
+                                "${expConfig.name}/${nNodes}n_${dataDistribution}_${readPercent}r_${persistence}p_${failPercent}f_${tcBaseFileNumber}"
 
-                        if (!File("${dockerConfig.logsFolder}/$logsPath").exists()) {
-                            println(
-                                "---------- Running experiment $nExp/$nExps with $tcConfigFile, $nNodes nodes, " +
-                                        "$dataDistribution data distribution, $readPercent reads, $failPercent fail percent -------"
-                            )
-                        } else {
-                            println(
-                                "---------- Skipping experiment $nExp/$nExps with $tcConfigFile, $nNodes nodes, " +
-                                        "$dataDistribution data distribution, $readPercent reads, $failPercent fail percent -------"
-                            )
-                            return@thread
-                        }
+                            if (!File("${dockerConfig.logsFolder}/$logsPath").exists()) {
+                                println(
+                                    "---------- Running experiment $nExp/$nExps with $tcConfigFile, $nNodes nodes, " +
+                                            "$dataDistribution, $readPercent reads, $persistence persistence," +
+                                            " $failPercent fail percent -------"
+                                )
+                            } else {
+                                println(
+                                    "---------- Skipping experiment $nExp/$nExps with $tcConfigFile, $nNodes nodes, " +
+                                            "$dataDistribution, $readPercent reads, $persistence persistence," +
+                                            " $failPercent fail percent -------"
+                                )
+                                return@thread
+                            }
 
-                        runExp(
-                            nodes, clients, locationsMap, expConfig, tcConfigFile, nNodes,
-                            dataDistribution, readPercent, failPercent, "/logs/$logsPath"
-                        )
-                        FileUtils.deleteDirectory(File("${dockerConfig.logsFolder}/$logsPath"))
-                        println("Getting logs")
-                        coroutineScope {
-                            (allNodes + clients).map { it.proxy }.distinct().forEach { p ->
-                                launch(Dispatchers.IO) { p.cp("/logs/${expConfig.name}", dockerConfig.logsFolder) }
+                            runExp(
+                                nodes, clients, locationsMap, expConfig, tcConfigFile, nNodes,
+                                dataDistribution, readPercent, persistence, failPercent, "/logs/$logsPath"
+                            )
+                            FileUtils.deleteDirectory(File("${dockerConfig.logsFolder}/$logsPath"))
+                            println("Getting logs")
+                            coroutineScope {
+                                (allNodes + clients).map { it.proxy }.distinct().forEach { p ->
+                                    launch(Dispatchers.IO) {
+                                        p.cp(
+                                            "/logs/${logsPath}",
+                                            "${dockerConfig.logsFolder}/${expConfig.name}"
+                                        )
+                                    }
+                                }
                             }
                         }
                     }
+
                 }
             }
         }
@@ -88,18 +98,18 @@ suspend fun runFail(expYaml: YamlNode, proxies: Proxies, dockerConfig: DockerCon
 private suspend fun runExp(
     nodes: List<DockerProxy.ContainerProxy>, clients: List<DockerProxy.ContainerProxy>,
     locationsMap: Map<Int, Location>, expConfig: FailConfig, tcConfigFile: String, nNodes: Int,
-    dataDistribution: String, readPercent: Int, failPercent: Int, logsPath: String,
+    dataDistribution: String, readPercent: Int, persistence: Int, failPercent: Int, logsPath: String,
 ) {
     startAllNodes(nodes, locationsMap, logsPath)
     //println("Waiting for tree to stabilize")
     when (nNodes) {
-        200 -> sleep(25000)
-        20 -> sleep(15000)
+        200 -> sleep(40000)
+        20 -> sleep(20000)
         else -> throw Exception("Invalid number of nodes $nNodes")
     }
 
     //println("Starting clients")
-    startAllClients(clients, locationsMap, dataDistribution, nNodes, readPercent, logsPath, expConfig)
+    startAllClients(clients, locationsMap, dataDistribution, nNodes, readPercent, persistence, logsPath, expConfig)
 
     sleep(expConfig.failAt * 1000L)
 
@@ -126,7 +136,7 @@ private suspend fun runExp(
 
 private suspend fun startAllClients(
     clients: List<DockerProxy.ContainerProxy>, locationsMap: Map<Int, Location>,
-    dataDistribution: String, nNodes: Int, readPercent: Int, logsPath: String,
+    dataDistribution: String, nNodes: Int, readPercent: Int, persistence: Int, logsPath: String,
     expConfig: FailConfig,
 ) {
     coroutineScope {
@@ -142,13 +152,14 @@ private suspend fun startAllClients(
                 "$logsPath/$hostname",
                 "-threads", "${expConfig.threads}",
                 "-target", "${expConfig.limit}",
-                "-p", "timeout_millis=10000",
+                "-p", "timeout_millis=30000",
+                "-p", "migration_timeout_millis=10000",
                 "-p", "db=EdgeMigratingClient",
                 "-p", "host=$clientNode",
                 "-p", "readproportion=${readPercent / 100.0}",
                 "-p", "updateproportion=${(100 - readPercent) / 100.0}",
                 "-p", "status.interval=1",
-
+                "-p", "persistence=$persistence",
                 )
 
             when (dataDistribution) {
@@ -194,6 +205,7 @@ private suspend fun startAllNodes(
             val cmd = mutableListOf(
                 "./start.sh", "$logsPath/$hostname", "hostname=$hostname", "region=eu", "datacenter=$dc",
                 "location_x=${location.x}", "location_y=${location.y}", "tree_builder_nnodes=${nodes.size}",
+                "propagate_timeout=500",
             )
 
             launch(Dispatchers.IO) {

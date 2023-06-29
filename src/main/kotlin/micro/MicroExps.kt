@@ -54,7 +54,7 @@ suspend fun runMicro(expYaml: YamlNode, proxies: Proxies, dockerConfig: DockerCo
                         if (expConfig.threadLimitPerNNodes[nNodes] != null && nThreads > expConfig.threadLimitPerNNodes[nNodes]!!) {
                             println(
                                 "---------- Skipping by limiter $nExp/$nExps with $tcConfigFile, $nNodes nodes, " +
-                                        "$dataDistribution data distribution, $readPercent reads, $nThreads threads -------"
+                                        "$dataDistribution, $readPercent reads, $nThreads threads -------"
                             )
                             return@thread
                         }
@@ -62,12 +62,12 @@ suspend fun runMicro(expYaml: YamlNode, proxies: Proxies, dockerConfig: DockerCo
                         if (!File("${dockerConfig.logsFolder}/$logsPath").exists()) {
                             println(
                                 "---------- Running experiment $nExp/$nExps with $tcConfigFile, $nNodes nodes, " +
-                                        "$dataDistribution data distribution, $readPercent reads, $nThreads threads -------"
+                                        "$dataDistribution, $readPercent reads, $nThreads threads -------"
                             )
                         } else {
                             println(
                                 "---------- Skipping existing $nExp/$nExps with $tcConfigFile, $nNodes nodes, " +
-                                        "$dataDistribution data distribution, $readPercent reads, $nThreads threads -------"
+                                        "$dataDistribution, $readPercent reads, $nThreads threads -------"
                             )
                             return@thread
                         }
@@ -109,8 +109,8 @@ private suspend fun runExp(
     startAllNodes(nodes, locationsMap, logsPath, dataDistribution, expConfig)
     //println("Waiting for tree to stabilize")
     when (nNodes) {
-        200 -> sleep(25000)
-        20 -> sleep(15000)
+        200 -> sleep(40000)
+        20 -> sleep(20000)
         1 -> sleep(5000)
         else -> throw Exception("Invalid number of nodes $nNodes")
     }
@@ -237,11 +237,12 @@ private suspend fun startAllNodes(
             val cmd = mutableListOf(
                 "./start.sh", "$logsPath/$hostname", "hostname=$hostname", "region=eu", "datacenter=$dc",
                 "location_x=${location.x}", "location_y=${location.y}", "tree_builder_nnodes=${nodes.size}",
+                "log_n_objects=1000"
             )
             if (dataDistribution == "periodic") {
-                val gcThreshold = (expConfig.periodicRemoteDuration * 1.5).toLong()
+                val gcThreshold = (expConfig.periodicRemoteDuration * 1).toLong()
                 cmd.add("gc_threshold=$gcThreshold")
-                cmd.add("gc_period=${gcThreshold / 5}")
+                cmd.add("gc_period=${gcThreshold / 2}")
             }
 
 
