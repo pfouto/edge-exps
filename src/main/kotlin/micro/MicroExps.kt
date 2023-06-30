@@ -51,7 +51,7 @@ suspend fun runMicro(expYaml: YamlNode, proxies: Proxies, dockerConfig: DockerCo
                         val logsPath =
                             "${expConfig.name}/${nNodes}n_${dataDistribution}_${readPercent}r_${nThreads}t_${tcBaseFileNumber}"
 
-                        if (expConfig.threadLimitPerNNodes[nNodes] != null && nThreads > expConfig.threadLimitPerNNodes[nNodes]!!) {
+                        if (nThreads > expConfig.threadLimit[nNodes]!![dataDistribution]!![readPercent]!!) {
                             println(
                                 "---------- Skipping by limiter $nExp/$nExps with $tcConfigFile, $nNodes nodes, " +
                                         "$dataDistribution, $readPercent reads, $nThreads threads -------"

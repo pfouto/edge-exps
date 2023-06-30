@@ -13,5 +13,5 @@ data class MicroConfig(
     val partitions: Map<Int, String>,
     val threads: List<Int>,
     val readPercents: List<Int>,
-    val threadLimitPerNNodes: Map<Int, Int>
+    val threadLimit: Map<Int, Map<String, Map<Int, Int>>>
 )
