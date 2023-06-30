@@ -1,4 +1,4 @@
-package micro
+package periodic
 
 import DockerProxy
 import Location
@@ -10,6 +10,7 @@ import com.github.dockerjava.api.model.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
 import kotlinx.serialization.decodeFromString
+import micro.MicroConfig
 import org.apache.commons.io.FileUtils
 import readLocationsMapFromFile
 import removeAllContainers
@@ -22,10 +23,10 @@ import java.io.FileInputStream
 import kotlin.math.pow
 import kotlin.math.sqrt
 
-suspend fun runMicro(expYaml: YamlNode, proxies: Proxies, dockerConfig: DockerConfig) {
-    val expConfig = Yaml.default.decodeFromString<MicroConfig>(expYaml.contentToString())
-    val nExps = expConfig.tcSetup.size * expConfig.nodes.size * expConfig.dataDistribution.size *
-            expConfig.readPercents.size * expConfig.threads.size
+suspend fun runPeriodic(expYaml: YamlNode, proxies: Proxies, dockerConfig: DockerConfig) {
+    val expConfig = Yaml.default.decodeFromString<PeriodicConfig>(expYaml.contentToString())
+    val nExps = expConfig.tcSetup.size * expConfig.nodes.size *
+            expConfig.readPercents.size
     println("------ Starting exp ${expConfig.name} with $nExps experiments ------")
     var nExp = 0
     expConfig.tcSetup.forEach { tcConfigFile ->
@@ -43,56 +44,43 @@ suspend fun runMicro(expYaml: YamlNode, proxies: Proxies, dockerConfig: DockerCo
             if (nodes.size < nNodes)
                 throw Exception("Not enough nodes for experiment")
 
-            expConfig.dataDistribution.forEach { dataDistribution ->
-                expConfig.readPercents.forEach { readPercent ->
-                    expConfig.threads.forEach thread@{ nThreads ->
-                        nExp++
-                        val tcBaseFileNumber = tcConfigFile.split(".")[0].split("_")[1]
-                        val logsPath =
-                            "${expConfig.name}/${nNodes}n_${dataDistribution}_${readPercent}r_${nThreads}t_${tcBaseFileNumber}"
+            expConfig.readPercents.forEach read@{ readPercent ->
+                    nExp++
+                    val tcBaseFileNumber = tcConfigFile.split(".")[0].split("_")[1]
+                    val logsPath =
+                        "${expConfig.name}/${nNodes}n_${readPercent}r_${tcBaseFileNumber}"
 
-                        if (expConfig.threadLimitPerNNodes[nNodes] != null && nThreads > expConfig.threadLimitPerNNodes[nNodes]!!) {
-                            println(
-                                "---------- Skipping by limiter $nExp/$nExps with $tcConfigFile, $nNodes nodes, " +
-                                        "$dataDistribution, $readPercent reads, $nThreads threads -------"
-                            )
-                            return@thread
-                        }
-
-                        if (!File("${dockerConfig.logsFolder}/$logsPath").exists()) {
-                            println(
-                                "---------- Running experiment $nExp/$nExps with $tcConfigFile, $nNodes nodes, " +
-                                        "$dataDistribution, $readPercent reads, $nThreads threads -------"
-                            )
-                        } else {
-                            println(
-                                "---------- Skipping existing $nExp/$nExps with $tcConfigFile, $nNodes nodes, " +
-                                        "$dataDistribution, $readPercent reads, $nThreads threads -------"
-                            )
-                            return@thread
-                        }
-
-
-                        runExp(
-                            nodes, clients, locationsMap, expConfig, nNodes,
-                            dataDistribution, readPercent, nThreads, "/logs/$logsPath"
+                    if (!File("${dockerConfig.logsFolder}/$logsPath").exists()) {
+                        println(
+                            "---------- Running experiment $nExp/$nExps with $tcConfigFile, $nNodes nodes, " +
+                                    "$readPercent reads -------"
                         )
-                        FileUtils.deleteDirectory(File("${dockerConfig.logsFolder}/$logsPath"))
+                    } else {
+                        println(
+                            "---------- Skipping existing $nExp/$nExps with $tcConfigFile, $nNodes nodes, " +
+                                    "$readPercent reads -------"
+                        )
+                        return@read
+                    }
 
-                        println("Getting logs")
-                        coroutineScope {
-                            (allNodes + clients).map { it.proxy }.distinct().forEach { p ->
-                                launch(Dispatchers.IO) {
-                                    p.cp(
-                                        "/logs/${logsPath}",
-                                        "${dockerConfig.logsFolder}/${expConfig.name}"
-                                    )
-                                }
+
+                    runExp(
+                        nodes, clients, locationsMap, expConfig, nNodes,
+                        readPercent, "/logs/$logsPath"
+                    )
+                    FileUtils.deleteDirectory(File("${dockerConfig.logsFolder}/$logsPath"))
+
+                    println("Getting logs")
+                    coroutineScope {
+                        (allNodes + clients).map { it.proxy }.distinct().forEach { p ->
+                            launch(Dispatchers.IO) {
+                                p.cp(
+                                    "/logs/${logsPath}",
+                                    "${dockerConfig.logsFolder}/${expConfig.name}"
+                                )
                             }
                         }
-
-                    } //End thread
-                }
+                    }
             }
         }
 
@@ -103,10 +91,10 @@ suspend fun runMicro(expYaml: YamlNode, proxies: Proxies, dockerConfig: DockerCo
 
 private suspend fun runExp(
     nodes: List<DockerProxy.ContainerProxy>, clients: List<DockerProxy.ContainerProxy>,
-    locationsMap: Map<Int, Location>, expConfig: MicroConfig, nNodes: Int,
-    dataDistribution: String, readPercent: Int, nThreads: Int, logsPath: String,
+    locationsMap: Map<Int, Location>, expConfig: PeriodicConfig, nNodes: Int,
+    readPercent: Int, logsPath: String,
 ) {
-    startAllNodes(nodes, locationsMap, logsPath)
+    startAllNodes(nodes, locationsMap, logsPath, expConfig)
     //println("Waiting for tree to stabilize")
     when (nNodes) {
         200 -> sleep(40000)
@@ -116,7 +104,7 @@ private suspend fun runExp(
     }
 
     //println("Starting clients")
-    startAllClients(clients, locationsMap, dataDistribution, nNodes, nThreads, readPercent, logsPath, expConfig)
+    startAllClients(clients, locationsMap, nNodes, readPercent, logsPath, expConfig)
 
     //println("Waiting for experiment to finish")
     sleep(expConfig.duration * 1000L)
@@ -130,8 +118,8 @@ private suspend fun runExp(
 
 private suspend fun startAllClients(
     clients: List<DockerProxy.ContainerProxy>, locationsMap: Map<Int, Location>,
-    dataDistribution: String, nNodes: Int, nThreads: Int, readPercent: Int, logsPath: String,
-    expConfig: MicroConfig,
+    nNodes: Int, readPercent: Int, logsPath: String,
+    expConfig: PeriodicConfig,
 ) {
     coroutineScope {
         clients.forEach { container ->
@@ -144,34 +132,44 @@ private suspend fun startAllClients(
             val cmd = mutableListOf(
                 "./start.sh",
                 "$logsPath/$hostname",
-                "-threads", "$nThreads",
+                "-threads", "${expConfig.threads}",
+                "-target", "${expConfig.limit}",
                 "-p", "host=$clientNode",
                 "-p", "readproportion=${readPercent / 100.0}",
                 "-p", "updateproportion=${(100 - readPercent) / 100.0}",
+                "-p", "status.interval=1"
             )
 
-            when (dataDistribution) {
-                "global" -> {
+            when (expConfig.dataDistribution) {
+
+                "periodic" -> {
+                    val localTables = mutableListOf<String>()
+                    val remoteTables = mutableListOf<String>()
+                    if (nodeSlice != -1) {
+                        localTables.add(partitions[nodeSlice]!!)
+                        localTables.add(partitions[(nodeSlice + 1) % partitions.size]!!)
+                        localTables.add(partitions[if (nodeSlice - 1 < 0) partitions.size - 1 else nodeSlice - 1]!!)
+                        remoteTables.addAll(partitions.values)
+                        remoteTables.removeAll(localTables)
+                    } else {
+                        localTables.addAll(partitions.values)
+                        remoteTables.addAll(partitions.values)
+                    }
                     cmd.add("-p")
-                    cmd.add("workload=site.ycsb.workloads.EdgeFixedWorkload")
+                    cmd.add("workload=site.ycsb.workloads.EdgePeriodicWorkload")
                     cmd.add("-p")
-                    cmd.add("tables=${partitions.values.joinToString(",")}")
+                    cmd.add("local_tables=${localTables.joinToString(",")}")
+                    cmd.add("-p")
+                    cmd.add("remote_tables=${remoteTables.joinToString(",")}")
+                    cmd.add("-p")
+                    cmd.add("remote_duration=${expConfig.periodicRemoteDuration}")
+                    cmd.add("-p")
+                    cmd.add("remote_interval=${expConfig.periodicRemoteInterval}")
+                    cmd.add("-p")
+                    cmd.add("recordcount=${expConfig.recordCount}")
                 }
 
-                "local" -> {
-
-                    val tables = if (nodeSlice != -1) "${partitions[nodeSlice]!!}," +
-                            "${partitions[(nodeSlice + 1) % partitions.size]}," +
-                            "${partitions[if (nodeSlice - 1 < 0) partitions.size - 1 else nodeSlice - 1]}"
-                    else partitions.values.joinToString(",")
-
-                    cmd.add("-p")
-                    cmd.add("workload=site.ycsb.workloads.EdgeFixedWorkload")
-                    cmd.add("-p")
-                    cmd.add("tables=$tables")
-                }
-
-                else -> throw Exception("Invalid data distribution $dataDistribution")
+                else -> throw Exception("Invalid data distribution $expConfig.dataDistribution")
             }
             launch(Dispatchers.IO) {
                 container.proxy.executeCommand(container.inspect.id, cmd.toTypedArray(), "/client")
@@ -197,17 +195,21 @@ private suspend fun startAllNodes(
     nodes: List<DockerProxy.ContainerProxy>,
     locationsMap: Map<Int, Location>,
     logsPath: String,
+    expConfig: PeriodicConfig,
 ) {
+    val gcThreshold = (expConfig.periodicRemoteDuration * 1).toLong()
+
     //print("Starting nodes... ")
     coroutineScope {
         val dc = nodes[0].inspect.config.hostName!!
-        nodes.forEach { container ->
+        nodes.forEachIndexed { index, container ->
             val hostname = container.inspect.config.hostName!!
             val nodeNumber = hostname.split("-")[1].toInt()
             val location = locationsMap[nodeNumber]!!
             val cmd = mutableListOf(
                 "./start.sh", "$logsPath/$hostname", "hostname=$hostname", "region=eu", "datacenter=$dc",
                 "location_x=${location.x}", "location_y=${location.y}", "tree_builder_nnodes=${nodes.size}",
+                "gc_threshold=$gcThreshold", "gc_period=${gcThreshold / 2}", "log_n_objects=1000"
             )
 
             launch(Dispatchers.IO) {

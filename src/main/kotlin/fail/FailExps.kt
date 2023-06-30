@@ -100,7 +100,7 @@ private suspend fun runExp(
     locationsMap: Map<Int, Location>, expConfig: FailConfig, tcConfigFile: String, nNodes: Int,
     dataDistribution: String, readPercent: Int, persistence: Int, failPercent: Int, logsPath: String,
 ) {
-    startAllNodes(nodes, locationsMap, logsPath)
+    startAllNodes(nodes, locationsMap, logsPath, expConfig.propagateTimeout)
     //println("Waiting for tree to stabilize")
     when (nNodes) {
         200 -> sleep(40000)
@@ -179,9 +179,11 @@ private suspend fun startAllClients(
     }
 }
 
-private fun closestActiveNode(clientNumber: Int, locationsMap: Map<Int, Location>, nNodes: Int): Pair<Int, Location> {
+fun closestActiveNode(clientNumber: Int, locationsMap: Map<Int, Location>, nNodes: Int): Pair<Int, Location> {
+    if(nNodes == 1) return Pair(0, locationsMap[0]!!)
+
     val clientLoc = locationsMap[clientNumber]!!
-    val activeNodes = locationsMap.filter { it.key < nNodes }
+    val activeNodes = locationsMap.filter { it.key < nNodes && it.key != 0 }
     val closestNode = activeNodes.minByOrNull { distance(clientLoc, it.value) }!!
     return Pair(closestNode.key, closestNode.value)
 }
@@ -193,7 +195,7 @@ private fun distance(loc1: Location, loc2: Location): Double {
 private suspend fun startAllNodes(
     nodes: List<DockerProxy.ContainerProxy>,
     locationsMap: Map<Int, Location>,
-    logsPath: String,
+    logsPath: String, propagateTimeout: Int,
 ) {
     //print("Starting nodes... ")
     coroutineScope {
@@ -205,7 +207,7 @@ private suspend fun startAllNodes(
             val cmd = mutableListOf(
                 "./start.sh", "$logsPath/$hostname", "hostname=$hostname", "region=eu", "datacenter=$dc",
                 "location_x=${location.x}", "location_y=${location.y}", "tree_builder_nnodes=${nodes.size}",
-                "propagate_timeout=500",
+                "propagate_timeout=$propagateTimeout",
             )
 
             launch(Dispatchers.IO) {

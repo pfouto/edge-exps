@@ -1,9 +1,9 @@
-package micro
+package migration
 
 import kotlinx.serialization.Serializable
 
 @Serializable
-data class MicroConfig(
+data class MigrationConfig(
     val name: String,
     val type: String,
     val tcSetup: List<String>,
@@ -11,7 +11,6 @@ data class MicroConfig(
     val duration: Int,
     val dataDistribution: List<String>,
     val partitions: Map<Int, String>,
-    val threads: List<Int>,
+    val threads: Int,
     val readPercents: List<Int>,
-    val threadLimitPerNNodes: Map<Int, Int>
 )

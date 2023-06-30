@@ -1,26 +1,24 @@
 dockerConfig: "docker_config.yaml"
 exps:
-  - type: "micro" #name of the exp
+  - type: "periodic" #name of the exp
     name: "periodic"
-    skip: false
     duration: 120
+    dataDistribution: "periodic"
+
     #    tcSetup: [ "tc_1.yaml","tc_2.yaml", "tc_3.yaml" ]
-    tcSetup: [ "tc_1.yaml", "tc_2.yaml", "tc_3.yaml" ]
+    tcSetup: [ "tc_1.yaml" ]
     #    nodes: [1, 20, 200]
     nodes: [ 1, 20, 200 ]
-    #    dataDistribution: ["periodic"]
-    dataDistribution: [ "periodic" ]
     #    readPercents: [95, 50, 0]
-    readPercents: [ 50, 95 ]
+    readPercents: [ 95 ]
     #    threads: [ 1, 2, 4, 8, 16, 32, 64, 128, 256, 512 ]
-    threads: [ 16 ]
+
+    threads: 16
+    limit: 200
+    recordCount: 500
+
     periodicRemoteInterval: 30000
     periodicRemoteDuration: 10000
-
-    threadLimitPerNNodes:
-      1: 64
-      20: 1024
-      200: 2048
 
     partitions:
       0: "A"
@@ -31,13 +29,3 @@ exps:
       5: "F"
       6: "G"
       7: "H"
-
-#  - type: "micro_failures"
-#    name: "failures"
-#    skip: true
-#    tcSetup: [ "tc_1.yaml","tc_2.yaml", "tc_3.yaml" ]
-#    nodes: [1, 50, 100, 300]
-#    duration: 120
-#    dataDistribution: ["global", "local", "periodic"]
-
-

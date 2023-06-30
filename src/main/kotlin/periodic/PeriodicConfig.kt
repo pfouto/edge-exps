@@ -1,17 +1,20 @@
-package micro
+package periodic
 
 import kotlinx.serialization.Serializable
 
 @Serializable
-data class MicroConfig(
+data class PeriodicConfig(
     val name: String,
     val type: String,
     val tcSetup: List<String>,
     val nodes: List<Int>,
     val duration: Int,
-    val dataDistribution: List<String>,
+    val dataDistribution: String,
     val partitions: Map<Int, String>,
-    val threads: List<Int>,
+    val threads: Int,
+    val limit: Int,
     val readPercents: List<Int>,
-    val threadLimitPerNNodes: Map<Int, Int>
+    val periodicRemoteInterval: Long,
+    val periodicRemoteDuration: Long,
+    val recordCount: Int
 )

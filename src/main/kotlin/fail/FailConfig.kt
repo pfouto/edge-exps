@@ -7,7 +7,6 @@ import kotlinx.serialization.Serializable
 data class FailConfig(
     val name: String,
     val type: String,
-    val skip: Boolean,
     val failAt: Int,
     val failPercents: List<Int>,
     val tcSetup: List<String>,
@@ -19,4 +18,5 @@ data class FailConfig(
     val limit: Int,
     val readPercents: List<Int>,
     val clientPersistence: List<Int>,
+    val propagateTimeout: Int
 )

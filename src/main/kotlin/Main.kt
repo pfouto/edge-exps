@@ -2,8 +2,10 @@ import com.charleskorn.kaml.*
 import fail.runFail
 import kotlinx.coroutines.*
 import micro.runMicro
+import migration.runMigration
 import org.apache.commons.lang3.exception.ExceptionUtils
 import org.apache.hc.client5.http.HttpHostConnectException
+import periodic.runPeriodic
 import utils.DockerConfig
 import java.io.File
 import java.io.FileInputStream
@@ -142,6 +144,13 @@ suspend fun run(me: String, hosts: List<String>, arguments: Map<String, String>)
             "fails" -> {
                 runFail(it, proxies, dockerConfig)
             }
+            "periodic" -> {
+                runPeriodic(it, proxies, dockerConfig)
+            }
+            "migration" -> {
+                runMigration(it, proxies, dockerConfig)
+            }
+
             else -> throw IllegalArgumentException("Unknown experiment type: $expType")
         }
     }
