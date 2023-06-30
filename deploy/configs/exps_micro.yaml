@@ -7,16 +7,16 @@ exps:
     #    tcSetup: [ "tc_1.yaml","tc_2.yaml", "tc_3.yaml" ]
     tcSetup: [ "tc_1.yaml"]
     #    nodes: [1, 20, 200]
-    nodes: [ 20 ]
+    nodes: [ 1,20,200 ]
     #    dataDistribution: ["global", "local"]
     dataDistribution: [ "global", "local" ]
     #    readPercents: [95, 50, 0]
-    readPercents: [ 0, 50, 90 ]
+    readPercents: [ 0, 50, 95 ]
     #    threads: [ 1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048 ]
-    threads: [ 1, 8 ]
+    threads: [ 16, 32, 64, 128, 256, 512, 1024 ]
 
     threadLimitPerNNodes:
-        1: 128
+        1: 1024
         20: 2048
         200: 2048
 

@@ -148,6 +148,7 @@ private suspend fun startAllClients(
                 "-p", "host=$clientNode",
                 "-p", "readproportion=${readPercent / 100.0}",
                 "-p", "updateproportion=${(100 - readPercent) / 100.0}",
+                "-p", "persistence=100",
             )
 
             when (dataDistribution) {
@@ -208,6 +209,7 @@ private suspend fun startAllNodes(
             val cmd = mutableListOf(
                 "./start.sh", "$logsPath/$hostname", "hostname=$hostname", "region=eu", "datacenter=$dc",
                 "location_x=${location.x}", "location_y=${location.y}", "tree_builder_nnodes=${nodes.size}",
+                "propagate_timeout=50"
             )
 
             launch(Dispatchers.IO) {
