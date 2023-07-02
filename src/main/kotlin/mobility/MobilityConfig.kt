@@ -25,5 +25,6 @@ data class MobilityConfig(
 
     val commuteWork: Int,
     val commuteHome: Int,
-    val commuteDuration: Int
+    val commuteDuration: Int,
+    val workRadius: Int,
 )

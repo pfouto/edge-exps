@@ -6,7 +6,7 @@ exps:
     duration: 120
 
     #    tcSetup: [ "tc_1.yaml","tc_2.yaml", "tc_3.yaml" ]
-    tcSetup: [ "tc_1.yaml"]
+    tcSetup: [ "tc_1.yaml", "tc_2.yaml", "tc_3.yaml"]
     #    nodes: [1, 50, 100, 300]
     nodes: [ 200 ]
     #    threads: [ 1, 2, 4, 8, 16, 32, 64, 128, 256, 512 ]
@@ -19,7 +19,7 @@ exps:
     readPercents: [ 95 ]
     dataDistribution: [ "local" ]
 
-    migrationPattern: ["random"]
+    migrationPattern: ["commute", "random"]
 
     randomDegrees: 90
     randomStart: 20
@@ -27,8 +27,9 @@ exps:
 
 
     commuteWork: 20
-    commuteHome: 80
+    commuteHome: 70
     commuteDuration: 20
+    workRadius: 60
 
 
     gcThreshold: 10000

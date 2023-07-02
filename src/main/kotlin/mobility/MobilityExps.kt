@@ -149,29 +149,40 @@ private suspend fun startAllClients(
                 "-p", "recordcount=${expConfig.recordCount}",
             )
 
-            when (migrationPattern) {
+            val hotZones = mutableListOf<Point>()
+            hotZones.add(Point(150.0, 0.0))
+            hotZones.add(Point(-150.0, 0.0))
+            hotZones.add(Point(0.0, 150.0))
+            hotZones.add(Point(0.0, -150.0))
+
+            val path = when (migrationPattern) {
+                "commute" -> {
+                    generateCommuteClientPath(
+                        locationsMap, nNodes, locationsMap[clientNumber]!!,
+                        expConfig.commuteWork, expConfig.commuteHome, expConfig.commuteDuration, expConfig.workRadius,
+                        hotZones
+                    )
+                }
+
                 "random" -> {
-                    val path = generateRandomClientPath(
+                    generateRandomClientPath(
                         locationsMap, nNodes, locationsMap[clientNumber]!!,
                         if (Math.random() < 0.5) expConfig.randomDegrees else -1 * expConfig.randomDegrees,
                         expConfig.randomStart, expConfig.randomDuration
                     )
-                    //println("Client $clientNumber path $path")
-                    val pathStringBuilder = StringBuilder()
-                    path.forEach { (time, nodeNumber) ->
-                        pathStringBuilder.append("${time}:node-${nodeNumber},")
-                    }
-                    pathStringBuilder.deleteCharAt(pathStringBuilder.length - 1)
-                    cmd.add("-p")
-                    cmd.add("path=$pathStringBuilder")
-                }
-
-                "commute" -> {
-                    TODO()
                 }
 
                 else -> throw Exception("Invalid migration pattern $migrationPattern")
             }
+            println("Client $clientNumber path: $path")
+            val pathStringBuilder = StringBuilder()
+            path.forEach { (time, nodeNumber) ->
+                pathStringBuilder.append("${time}:node-${nodeNumber},")
+            }
+            pathStringBuilder.deleteCharAt(pathStringBuilder.length - 1)
+
+            cmd.add("-p")
+            cmd.add("path=$pathStringBuilder")
 
 
             when (dataDistribution) {
@@ -193,21 +204,58 @@ private suspend fun startAllClients(
     }
 }
 
+fun distanceTo(a: Point, b: Point): Double {
+    return sqrt((a.x - b.x) * (a.x - b.x) + (a.y - b.y) * (a.y - b.y))
+}
+
+private fun randomPointInRange(center: Point, radius: Int): Point {
+    val angle = Math.random() * 2 * Math.PI
+    val distance = sqrt(Math.random()) * radius
+    return Point(center.x + distance * cos(angle), center.y + distance * sin(angle))
+}
+
+fun generateCommuteClientPath(
+    locationsMap: Map<Int, Location>, nNodes: Int, clientLocation: Location,
+    commuteWork: Int, commuteHome: Int, commuteDuration: Int, workRadius: Int, hotZones: MutableList<Point>,
+): List<Pair<Int, Int>> {
+    val path = mutableListOf<Pair<Int, Int>>()
+    val sLocation = Point(clientLocation.x, clientLocation.y)
+    val closestHotzone = hotZones.minBy { distanceTo(it, sLocation) }
+    val workLocation = randomPointInRange(closestHotzone, workRadius)
+    path.add(Pair(0, closestActiveNode(Location(sLocation.x, sLocation.y, -1), locationsMap, nNodes).first))
+    for (time in 0..commuteDuration) {
+        val movedPoint = Point(
+            sLocation.x + (workLocation.x - sLocation.x) * time / commuteDuration,
+            sLocation.y + (workLocation.y - sLocation.y) * time / commuteDuration
+        )
+        val currentClosestNode =
+            closestActiveNode(Location(movedPoint.x, movedPoint.y, -1), locationsMap, nNodes).first
+        if (path.last().second != currentClosestNode)
+            path.add(Pair(time + commuteWork, currentClosestNode))
+    }
+    for (time in 0..commuteDuration) {
+        val movedPoint = Point(
+            workLocation.x + (sLocation.x - workLocation.x) * time / commuteDuration,
+            workLocation.y + (sLocation.y - workLocation.y) * time / commuteDuration
+        )
+        val currentClosestNode =
+            closestActiveNode(Location(movedPoint.x, movedPoint.y, -1), locationsMap, nNodes).first
+        if (path.last().second != currentClosestNode)
+            path.add(Pair(time + commuteHome, currentClosestNode))
+    }
+    return path
+}
+
 
 fun generateRandomClientPath(
     locationsMap: Map<Int, Location>, nNodes: Int, clientLocation: Location,
     totalRotation: Int, start: Int, duration: Int,
 ): List<Pair<Int, Int>> {
     val path = mutableListOf<Pair<Int, Int>>()
-    val startingLocation = Point(clientLocation.x, clientLocation.y)
-    path.add(
-        Pair(
-            0,
-            closestActiveNode(Location(startingLocation.x, startingLocation.y, -1), locationsMap, nNodes).first
-        )
-    )
+    val sLocation = Point(clientLocation.x, clientLocation.y)
+    path.add(Pair(0, closestActiveNode(Location(sLocation.x, sLocation.y, -1), locationsMap, nNodes).first))
     for (time in 0..duration) {
-        val rotatedLocation = startingLocation.rotateAroundCenter(totalRotation.toDouble() * time / duration)
+        val rotatedLocation = sLocation.rotateAroundCenter(totalRotation.toDouble() * time / duration)
         val currentClosestNode =
             closestActiveNode(Location(rotatedLocation.x, rotatedLocation.y, -1), locationsMap, nNodes).first
         if (path.last().second != currentClosestNode)
