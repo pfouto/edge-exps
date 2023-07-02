@@ -14,9 +14,9 @@ exps:
     readPercents: [ 0 ]
 
     threads: 16
-    limit: 50
+    limit: 25
     recordCount: 100
-    propagateTimeout: 20
+    propagateTimeout: 10
 
     dataDistribution: [ "global", "local" ]
 

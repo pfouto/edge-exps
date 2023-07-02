@@ -1,4 +1,4 @@
-package migration
+package mobility
 
 import DockerProxy
 import Location
@@ -19,13 +19,15 @@ import utils.DockerConfig
 import utils.TcConfig
 import java.io.File
 import java.io.FileInputStream
+import kotlin.math.cos
 import kotlin.math.pow
+import kotlin.math.sin
 import kotlin.math.sqrt
 
-suspend fun runMigration(expYaml: YamlNode, proxies: Proxies, dockerConfig: DockerConfig) {
-    val expConfig = Yaml.default.decodeFromString<MigrationConfig>(expYaml.contentToString())
+suspend fun runMobility(expYaml: YamlNode, proxies: Proxies, dockerConfig: DockerConfig) {
+    val expConfig = Yaml.default.decodeFromString<MobilityConfig>(expYaml.contentToString())
     val nExps = expConfig.tcSetup.size * expConfig.nodes.size * expConfig.dataDistribution.size *
-            expConfig.readPercents.size
+            expConfig.readPercents.size * expConfig.migrationPattern.size
     println("------ Starting exp ${expConfig.name} with $nExps experiments ------")
     var nExp = 0
     expConfig.tcSetup.forEach { tcConfigFile ->
@@ -42,46 +44,47 @@ suspend fun runMigration(expYaml: YamlNode, proxies: Proxies, dockerConfig: Dock
             val nodes = allNodes.take(nNodes)
             if (nodes.size < nNodes)
                 throw Exception("Not enough nodes for experiment")
+            expConfig.migrationPattern.forEach { migPattern ->
+                expConfig.dataDistribution.forEach { dataDistribution ->
+                    expConfig.readPercents.forEach read@{ readPercent ->
+                        nExp++
+                        val tcBaseFileNumber = tcConfigFile.split(".")[0].split("_")[1]
+                        val logsPath =
+                            "${expConfig.name}/${nNodes}n_${dataDistribution}_${readPercent}r_${migPattern}_${tcBaseFileNumber}"
 
-            expConfig.dataDistribution.forEach { dataDistribution ->
-                expConfig.readPercents.forEach read@{ readPercent ->
-                    nExp++
-                    val tcBaseFileNumber = tcConfigFile.split(".")[0].split("_")[1]
-                    val logsPath =
-                        "${expConfig.name}/${nNodes}n_${dataDistribution}_${readPercent}r_${tcBaseFileNumber}"
+                        if (!File("${dockerConfig.logsFolder}/$logsPath").exists()) {
+                            println(
+                                "---------- Running experiment $nExp/$nExps with $tcConfigFile, $nNodes nodes, " +
+                                        "$migPattern, $dataDistribution, $readPercent reads -------"
+                            )
+                        } else {
+                            println(
+                                "---------- Skipping existing $nExp/$nExps with $tcConfigFile, $nNodes nodes, " +
+                                        "$migPattern, $dataDistribution, $readPercent reads -------"
+                            )
+                            return@read
+                        }
 
-                    if (!File("${dockerConfig.logsFolder}/$logsPath").exists()) {
-                        println(
-                            "---------- Running experiment $nExp/$nExps with $tcConfigFile, $nNodes nodes, " +
-                                    "$dataDistribution, $readPercent reads -------"
+
+                        runExp(
+                            nodes, clients, locationsMap, expConfig, tcConfigFile, nNodes,
+                            dataDistribution, readPercent, migPattern, "/logs/$logsPath"
                         )
-                    } else {
-                        println(
-                            "---------- Skipping existing $nExp/$nExps with $tcConfigFile, $nNodes nodes, " +
-                                    "$dataDistribution, $readPercent reads -------"
-                        )
-                        return@read
-                    }
+                        FileUtils.deleteDirectory(File("${dockerConfig.logsFolder}/$logsPath"))
 
-
-                    runExp(
-                        nodes, clients, locationsMap, expConfig, tcConfigFile, nNodes,
-                        dataDistribution, readPercent, "/logs/$logsPath"
-                    )
-                    FileUtils.deleteDirectory(File("${dockerConfig.logsFolder}/$logsPath"))
-
-                    println("Getting logs")
-                    coroutineScope {
-                        (allNodes + clients).map { it.proxy }.distinct().forEach { p ->
-                            launch(Dispatchers.IO) {
-                                p.cp(
-                                    "/logs/${logsPath}",
-                                    "${dockerConfig.logsFolder}/${expConfig.name}"
-                                )
+                        println("Getting logs")
+                        coroutineScope {
+                            (allNodes + clients).map { it.proxy }.distinct().forEach { p ->
+                                launch(Dispatchers.IO) {
+                                    p.cp(
+                                        "/logs/${logsPath}",
+                                        "${dockerConfig.logsFolder}/${expConfig.name}"
+                                    )
+                                }
                             }
                         }
-                    }
 
+                    }
                 }
             }
         }
@@ -93,10 +96,10 @@ suspend fun runMigration(expYaml: YamlNode, proxies: Proxies, dockerConfig: Dock
 
 private suspend fun runExp(
     nodes: List<DockerProxy.ContainerProxy>, clients: List<DockerProxy.ContainerProxy>,
-    locationsMap: Map<Int, Location>, expConfig: MigrationConfig, tcConfigFile: String, nNodes: Int,
-    dataDistribution: String, readPercent: Int, logsPath: String,
+    locationsMap: Map<Int, Location>, expConfig: MobilityConfig, tcConfigFile: String, nNodes: Int,
+    dataDistribution: String, readPercent: Int, migrationPattern: String, logsPath: String,
 ) {
-    startAllNodes(nodes, locationsMap, logsPath)
+    startAllNodes(nodes, locationsMap, logsPath, expConfig.gcThreshold, expConfig.gcInterval)
     //println("Waiting for tree to stabilize")
     when (nNodes) {
         200 -> sleep(40000)
@@ -105,7 +108,7 @@ private suspend fun runExp(
     }
 
     //println("Starting clients")
-    startAllClients(clients, locationsMap, dataDistribution, nNodes, readPercent, logsPath, expConfig)
+    startAllClients(clients, locationsMap, dataDistribution, nNodes, readPercent, migrationPattern, logsPath, expConfig)
 
     //println("Waiting for experiment to finish")
     sleep(expConfig.duration * 1000L)
@@ -119,27 +122,57 @@ private suspend fun runExp(
 
 private suspend fun startAllClients(
     clients: List<DockerProxy.ContainerProxy>, locationsMap: Map<Int, Location>,
-    dataDistribution: String, nNodes: Int, readPercent: Int, logsPath: String,
-    expConfig: MigrationConfig,
+    dataDistribution: String, nNodes: Int, readPercent: Int, migrationPattern: String,
+    logsPath: String, expConfig: MobilityConfig,
 ) {
     coroutineScope {
         clients.forEach { container ->
+
+            // Generate client path
+
             val hostname = container.inspect.config.hostName!!
             val clientNumber = hostname.split("-")[1].toInt()
-            val closestNode = closestActiveNode(clientNumber, locationsMap, nNodes)
-            val clientNode = "node-${closestNode.first}"
+            val closestNode = closestActiveNode(locationsMap[clientNumber]!!, locationsMap, nNodes)
             val nodeSlice = closestNode.second.slice
             val partitions = expConfig.partitions
+
             val cmd = mutableListOf(
                 "./start.sh",
                 "$logsPath/$hostname",
                 "-threads", "${expConfig.threads}",
-                "-p", "host=$clientNode",
+                "-target", "${expConfig.limit}",
+                "-p", "timeout_millis=30000",
                 "-p", "readproportion=${readPercent / 100.0}",
                 "-p", "updateproportion=${(100 - readPercent) / 100.0}",
+                "-p", "status.interval=1",
+                "-p", "db=EdgeMobilityClient",
+                "-p", "recordcount=${expConfig.recordCount}",
             )
 
-            // Generate client path
+            when (migrationPattern) {
+                "random" -> {
+                    val path = generateRandomClientPath(
+                        locationsMap, nNodes, locationsMap[clientNumber]!!,
+                        if (Math.random() < 0.5) expConfig.randomDegrees else -1 * expConfig.randomDegrees,
+                        expConfig.randomStart, expConfig.randomDuration
+                    )
+                    //println("Client $clientNumber path $path")
+                    val pathStringBuilder = StringBuilder()
+                    path.forEach { (time, nodeNumber) ->
+                        pathStringBuilder.append("${time}:node-${nodeNumber},")
+                    }
+                    pathStringBuilder.deleteCharAt(pathStringBuilder.length - 1)
+                    cmd.add("-p")
+                    cmd.add("path=$pathStringBuilder")
+                }
+
+                "commute" -> {
+                    TODO()
+                }
+
+                else -> throw Exception("Invalid migration pattern $migrationPattern")
+            }
+
 
             when (dataDistribution) {
                 "local" -> {
@@ -160,12 +193,48 @@ private suspend fun startAllClients(
     }
 }
 
-private fun closestActiveNode(clientNumber: Int, locationsMap: Map<Int, Location>, nNodes: Int): Pair<Int, Location> {
-    if(nNodes == 1) return Pair(0, locationsMap[0]!!)
 
-    val clientLoc = locationsMap[clientNumber]!!
+fun generateRandomClientPath(
+    locationsMap: Map<Int, Location>, nNodes: Int, clientLocation: Location,
+    totalRotation: Int, start: Int, duration: Int,
+): List<Pair<Int, Int>> {
+    val path = mutableListOf<Pair<Int, Int>>()
+    val startingLocation = Point(clientLocation.x, clientLocation.y)
+    path.add(
+        Pair(
+            0,
+            closestActiveNode(Location(startingLocation.x, startingLocation.y, -1), locationsMap, nNodes).first
+        )
+    )
+    for (time in 0..duration) {
+        val rotatedLocation = startingLocation.rotateAroundCenter(totalRotation.toDouble() * time / duration)
+        val currentClosestNode =
+            closestActiveNode(Location(rotatedLocation.x, rotatedLocation.y, -1), locationsMap, nNodes).first
+        if (path.last().second != currentClosestNode)
+            path.add(Pair(time + start, currentClosestNode))
+    }
+
+    return path
+}
+
+data class Point(val x: Double, val y: Double) {
+    fun rotateAroundCenter(angleDegrees: Double): Point {
+        val angleRadians = angleDegrees * Math.PI / 180
+        val rotatedX = x * cos(angleRadians) - y * sin(angleRadians)
+        val rotatedY = x * sin(angleRadians) + y * cos(angleRadians)
+        return Point(rotatedX, rotatedY)
+    }
+}
+
+private fun closestActiveNode(
+    clientLocation: Location,
+    locationsMap: Map<Int, Location>,
+    nNodes: Int,
+): Pair<Int, Location> {
+    if (nNodes == 1) return Pair(0, locationsMap[0]!!)
+
     val activeNodes = locationsMap.filter { it.key < nNodes && it.key != 0 }
-    val closestNode = activeNodes.minByOrNull { distance(clientLoc, it.value) }!!
+    val closestNode = activeNodes.minByOrNull { distance(clientLocation, it.value) }!!
     return Pair(closestNode.key, closestNode.value)
 }
 
@@ -176,7 +245,7 @@ private fun distance(loc1: Location, loc2: Location): Double {
 private suspend fun startAllNodes(
     nodes: List<DockerProxy.ContainerProxy>,
     locationsMap: Map<Int, Location>,
-    logsPath: String,
+    logsPath: String, gcThreshold: Int, gcInterval: Int,
 ) {
     //print("Starting nodes... ")
     coroutineScope {
@@ -188,6 +257,7 @@ private suspend fun startAllNodes(
             val cmd = mutableListOf(
                 "./start.sh", "$logsPath/$hostname", "hostname=$hostname", "region=eu", "datacenter=$dc",
                 "location_x=${location.x}", "location_y=${location.y}", "tree_builder_nnodes=${nodes.size}",
+                "gc_threshold=$gcThreshold", "gc_period=$gcInterval", "log_n_objects=1000"
             )
 
             launch(Dispatchers.IO) {

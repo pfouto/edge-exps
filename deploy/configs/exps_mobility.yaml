@@ -1,10 +1,9 @@
 dockerConfig: "docker_config.yaml"
 exps:
-  - type: "migration" #name of the exp
-    name: "migration"
+  - type: "mobility" #name of the exp
+    name: "mobility"
 
-    duration: 90
-    migrateAt: 40
+    duration: 120
 
     #    tcSetup: [ "tc_1.yaml","tc_2.yaml", "tc_3.yaml" ]
     tcSetup: [ "tc_1.yaml"]
@@ -12,18 +11,28 @@ exps:
     nodes: [ 200 ]
     #    threads: [ 1, 2, 4, 8, 16, 32, 64, 128, 256, 512 ]
     # threads: 16
-    threads: 16
-    limit: 100
+    threads: 4
+    limit: 50
+    recordCount: 100
 
     #    readPercents: [95, 50, 0]
     readPercents: [ 95 ]
     dataDistribution: [ "local" ]
 
-    migrationPattern: ["random", "commute"]
+    migrationPattern: ["random"]
+
+    randomDegrees: 90
+    randomStart: 20
+    randomDuration: 70
 
 
-    gcThreshold: 1000
-    gcPeriod: 1000
+    commuteWork: 20
+    commuteHome: 80
+    commuteDuration: 20
+
+
+    gcThreshold: 10000
+    gcInterval: 1000
 
     partitions:
       0: "A"

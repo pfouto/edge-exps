@@ -3,7 +3,7 @@ import fail.runFail
 import kotlinx.coroutines.*
 import latency.runLatency
 import micro.runMicro
-import migration.runMigration
+import mobility.runMobility
 import org.apache.commons.lang3.exception.ExceptionUtils
 import org.apache.hc.client5.http.HttpHostConnectException
 import periodic.runPeriodic
@@ -148,8 +148,8 @@ suspend fun run(me: String, hosts: List<String>, arguments: Map<String, String>)
             "periodic" -> {
                 runPeriodic(it, proxies, dockerConfig)
             }
-            "migration" -> {
-                runMigration(it, proxies, dockerConfig)
+            "mobility" -> {
+                runMobility(it, proxies, dockerConfig)
             }
             "latency" -> {
                 runLatency(it, proxies, dockerConfig)
