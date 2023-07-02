@@ -184,12 +184,14 @@ class DockerProxy(private val host: String) {
     suspend fun createClientContainers(
         pairs: MutableList<Pair<Int, String>>, imageTag: String, hostConfig: HostConfig,
         volumes: Volumes, latencyFile: String, nServers: Int, channel: Channel<String>,
+        overrideEntryPoint: String? = null
     ) {
         //println("Creating ${pairs.size} containers on $shortHost")
         pairs.forEach { (number, ip) ->
             createContainer(
                 "client", number, ip, imageTag, hostConfig, volumes, latencyFile,
-                nServers, channel, 5, 10000, 2
+                nServers, channel, 5, 10000, 2,
+                overrideEntryPoint = overrideEntryPoint
             )
         }
     }
@@ -197,18 +199,23 @@ class DockerProxy(private val host: String) {
     private suspend fun createContainer(
         baseName: String, id: Int, ip: String, image: String, hostConfig: HostConfig, volumes: Volumes,
         latencyFile: String, nServers: Int, channel: Channel<String>, selfLatency: Int, bandwidth: Int,
-        latencyMultiplier: Int
+        latencyMultiplier: Int, overrideEntryPoint: String? = null
     ) {
         //println("Creating container $id on $shortHost")
         val name = "$baseName-$id"
 
 
-        val cId = client.createContainerCmd(image).withName(name).withHostName(name).withTty(true)
+        val command = client.createContainerCmd(image).withName(name).withHostName(name).withTty(true)
             .withAttachStderr(false).withAttachStdout(false)
             .withAttachStdin(false).withHostConfig(hostConfig).withVolumes(volumes.volumes.toList())
             .withCmd(id.toString(), latencyFile, nServers.toString(), selfLatency.toString(), bandwidth.toString(),
-                latencyMultiplier.toString()).withIpv4Address(ip).exec()
+                latencyMultiplier.toString()).withIpv4Address(ip)
 
+        if(overrideEntryPoint != null){
+            command.withEntrypoint(overrideEntryPoint)
+        }
+
+        val cId = command.exec()
         client.startContainerCmd(cId.id).exec()
 
         channel.send(cId.id)

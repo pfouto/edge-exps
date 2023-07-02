@@ -1,4 +1,4 @@
-package migration
+package latency
 
 import DockerProxy
 import Location
@@ -10,6 +10,7 @@ import com.github.dockerjava.api.model.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
 import kotlinx.serialization.decodeFromString
+import micro.MicroConfig
 import org.apache.commons.io.FileUtils
 import readLocationsMapFromFile
 import removeAllContainers
@@ -22,10 +23,10 @@ import java.io.FileInputStream
 import kotlin.math.pow
 import kotlin.math.sqrt
 
-suspend fun runMigration(expYaml: YamlNode, proxies: Proxies, dockerConfig: DockerConfig) {
-    val expConfig = Yaml.default.decodeFromString<MigrationConfig>(expYaml.contentToString())
+suspend fun runLatency(expYaml: YamlNode, proxies: Proxies, dockerConfig: DockerConfig) {
+    val expConfig = Yaml.default.decodeFromString<LatencyConfig>(expYaml.contentToString())
     val nExps = expConfig.tcSetup.size * expConfig.nodes.size * expConfig.dataDistribution.size *
-            expConfig.readPercents.size
+            expConfig.readPercents.size * expConfig.clientPersistence.size
     println("------ Starting exp ${expConfig.name} with $nExps experiments ------")
     var nExp = 0
     expConfig.tcSetup.forEach { tcConfigFile ->
@@ -44,48 +45,49 @@ suspend fun runMigration(expYaml: YamlNode, proxies: Proxies, dockerConfig: Dock
                 throw Exception("Not enough nodes for experiment")
 
             expConfig.dataDistribution.forEach { dataDistribution ->
-                expConfig.readPercents.forEach read@{ readPercent ->
-                    nExp++
-                    val tcBaseFileNumber = tcConfigFile.split(".")[0].split("_")[1]
-                    val logsPath =
-                        "${expConfig.name}/${nNodes}n_${dataDistribution}_${readPercent}r_${tcBaseFileNumber}"
+                expConfig.readPercents.forEach { readPercent ->
+                    expConfig.clientPersistence.forEach persist@{ persistence ->
+                            nExp++
+                            val tcBaseFileNumber = tcConfigFile.split(".")[0].split("_")[1]
+                            val logsPath =
+                                "${expConfig.name}/${nNodes}n_${dataDistribution}_${readPercent}r_${persistence}p_${tcBaseFileNumber}"
 
-                    if (!File("${dockerConfig.logsFolder}/$logsPath").exists()) {
-                        println(
-                            "---------- Running experiment $nExp/$nExps with $tcConfigFile, $nNodes nodes, " +
-                                    "$dataDistribution, $readPercent reads -------"
-                        )
-                    } else {
-                        println(
-                            "---------- Skipping existing $nExp/$nExps with $tcConfigFile, $nNodes nodes, " +
-                                    "$dataDistribution, $readPercent reads -------"
-                        )
-                        return@read
-                    }
-
-
-                    runExp(
-                        nodes, clients, locationsMap, expConfig, tcConfigFile, nNodes,
-                        dataDistribution, readPercent, "/logs/$logsPath"
-                    )
-                    FileUtils.deleteDirectory(File("${dockerConfig.logsFolder}/$logsPath"))
-
-                    println("Getting logs")
-                    coroutineScope {
-                        (allNodes + clients).map { it.proxy }.distinct().forEach { p ->
-                            launch(Dispatchers.IO) {
-                                p.cp(
-                                    "/logs/${logsPath}",
-                                    "${dockerConfig.logsFolder}/${expConfig.name}"
+                            if (!File("${dockerConfig.logsFolder}/$logsPath").exists()) {
+                                println(
+                                    "---------- Running experiment $nExp/$nExps with $tcConfigFile, $nNodes nodes, " +
+                                            "$dataDistribution, $readPercent reads, $persistence persistence," +
+                                            " -------"
                                 )
+                            } else {
+                                println(
+                                    "---------- Skipping experiment $nExp/$nExps with $tcConfigFile, $nNodes nodes, " +
+                                            "$dataDistribution, $readPercent reads, $persistence persistence," +
+                                            " -------"
+                                )
+                                return@persist
                             }
-                        }
+
+                            runExp(
+                                nodes, clients, locationsMap, expConfig, tcConfigFile, nNodes,
+                                dataDistribution, readPercent, persistence, "/logs/$logsPath"
+                            )
+                            FileUtils.deleteDirectory(File("${dockerConfig.logsFolder}/$logsPath"))
+                            println("Getting logs")
+                            coroutineScope {
+                                (allNodes + clients).map { it.proxy }.distinct().forEach { p ->
+                                    launch(Dispatchers.IO) {
+                                        p.cp(
+                                            "/logs/${logsPath}",
+                                            "${dockerConfig.logsFolder}/${expConfig.name}"
+                                        )
+                                    }
+                                }
+                            }
                     }
 
                 }
             }
         }
-
         removeAllContainers(proxies)
         proxies.allProxies.forEach { it.deleteVolume("logs") }
     }
@@ -93,22 +95,21 @@ suspend fun runMigration(expYaml: YamlNode, proxies: Proxies, dockerConfig: Dock
 
 private suspend fun runExp(
     nodes: List<DockerProxy.ContainerProxy>, clients: List<DockerProxy.ContainerProxy>,
-    locationsMap: Map<Int, Location>, expConfig: MigrationConfig, tcConfigFile: String, nNodes: Int,
-    dataDistribution: String, readPercent: Int, logsPath: String,
+    locationsMap: Map<Int, Location>, expConfig: LatencyConfig, tcConfigFile: String, nNodes: Int,
+    dataDistribution: String, readPercent: Int, persistence: Int, logsPath: String,
 ) {
-    startAllNodes(nodes, locationsMap, logsPath)
+    startAllNodes(nodes, locationsMap, logsPath, expConfig.propagateTimeout)
     //println("Waiting for tree to stabilize")
     when (nNodes) {
+        1 -> sleep(5000)
         200 -> sleep(40000)
         20 -> sleep(20000)
-        1 -> sleep(5000)
         else -> throw Exception("Invalid number of nodes $nNodes")
     }
 
     //println("Starting clients")
-    startAllClients(clients, locationsMap, dataDistribution, nNodes, readPercent, logsPath, expConfig)
+    startAllClients(clients, locationsMap, dataDistribution, nNodes, readPercent, persistence, logsPath, expConfig)
 
-    //println("Waiting for experiment to finish")
     sleep(expConfig.duration * 1000L)
 
     print("Stopping clients... ")
@@ -120,8 +121,8 @@ private suspend fun runExp(
 
 private suspend fun startAllClients(
     clients: List<DockerProxy.ContainerProxy>, locationsMap: Map<Int, Location>,
-    dataDistribution: String, nNodes: Int, readPercent: Int, logsPath: String,
-    expConfig: MigrationConfig,
+    dataDistribution: String, nNodes: Int, readPercent: Int, persistence: Int, logsPath: String,
+    expConfig: LatencyConfig,
 ) {
     coroutineScope {
         clients.forEach { container ->
@@ -135,9 +136,14 @@ private suspend fun startAllClients(
                 "./start.sh",
                 "$logsPath/$hostname",
                 "-threads", "${expConfig.threads}",
+                "-target", "${expConfig.limit}",
+                "-p", "timeout_millis=30000",
                 "-p", "host=$clientNode",
                 "-p", "readproportion=${readPercent / 100.0}",
                 "-p", "updateproportion=${(100 - readPercent) / 100.0}",
+                "-p", "status.interval=1",
+                "-p", "persistence=$persistence",
+                "-p", "recordcount=${expConfig.recordCount}",
             )
 
             when (dataDistribution) {
@@ -170,7 +176,7 @@ private suspend fun startAllClients(
     }
 }
 
-private fun closestActiveNode(clientNumber: Int, locationsMap: Map<Int, Location>, nNodes: Int): Pair<Int, Location> {
+fun closestActiveNode(clientNumber: Int, locationsMap: Map<Int, Location>, nNodes: Int): Pair<Int, Location> {
     if(nNodes == 1) return Pair(0, locationsMap[0]!!)
 
     val clientLoc = locationsMap[clientNumber]!!
@@ -186,18 +192,19 @@ private fun distance(loc1: Location, loc2: Location): Double {
 private suspend fun startAllNodes(
     nodes: List<DockerProxy.ContainerProxy>,
     locationsMap: Map<Int, Location>,
-    logsPath: String,
+    logsPath: String, propagateTimeout: Int,
 ) {
     //print("Starting nodes... ")
     coroutineScope {
         val dc = nodes[0].inspect.config.hostName!!
-        nodes.forEachIndexed { index, container ->
+        nodes.forEach { container ->
             val hostname = container.inspect.config.hostName!!
             val nodeNumber = hostname.split("-")[1].toInt()
             val location = locationsMap[nodeNumber]!!
             val cmd = mutableListOf(
                 "./start.sh", "$logsPath/$hostname", "hostname=$hostname", "region=eu", "datacenter=$dc",
                 "location_x=${location.x}", "location_y=${location.y}", "tree_builder_nnodes=${nodes.size}",
+                "propagate_timeout=$propagateTimeout",
             )
 
             launch(Dispatchers.IO) {
@@ -279,8 +286,7 @@ private suspend fun launchContainers(tcConfig: TcConfig, proxies: Proxies, docke
                 async(Dispatchers.IO) {
                     it.createClientContainers(
                         clientContainersInfo[it.shortHost]!!, dockerConfig.imageTag,
-                        hostConfigLimited, volumes, tcConfig.latencyFile, dockerConfig.nNodes, createdChannel,
-                        overrideEntryPoint = "/tc/setupTc_clients_move.sh"
+                        hostConfigLimited, volumes, tcConfig.latencyFile, dockerConfig.nNodes, createdChannel
                     )
                 }
             }

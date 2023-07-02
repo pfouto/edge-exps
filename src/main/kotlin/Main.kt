@@ -1,6 +1,7 @@
 import com.charleskorn.kaml.*
 import fail.runFail
 import kotlinx.coroutines.*
+import latency.runLatency
 import micro.runMicro
 import migration.runMigration
 import org.apache.commons.lang3.exception.ExceptionUtils
@@ -149,6 +150,9 @@ suspend fun run(me: String, hosts: List<String>, arguments: Map<String, String>)
             }
             "migration" -> {
                 runMigration(it, proxies, dockerConfig)
+            }
+            "latency" -> {
+                runLatency(it, proxies, dockerConfig)
             }
 
             else -> throw IllegalArgumentException("Unknown experiment type: $expType")

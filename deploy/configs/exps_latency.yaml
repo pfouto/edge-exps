@@ -1,0 +1,31 @@
+dockerConfig: "docker_config.yaml"
+exps:
+  - type: "latency" #name of the exp
+    name: "latency"
+    duration: 60
+
+    clientPersistence: [1, 2, 5, 10000 ]
+
+    #    tcSetup: [ "tc_1.yaml","tc_2.yaml", "tc_3.yaml" ]
+    tcSetup: [ "tc_1.yaml"]
+    #    nodes: [1, 50, 100, 300]
+    nodes: [ 1, 20, 200 ]
+    #    readPercents: [95, 50, 0]
+    readPercents: [ 0 ]
+
+    threads: 16
+    limit: 50
+    recordCount: 100
+    propagateTimeout: 20
+
+    dataDistribution: [ "global", "local" ]
+
+    partitions:
+      0: "A"
+      1: "B"
+      2: "C"
+      3: "D"
+      4: "E"
+      5: "F"
+      6: "G"
+      7: "H"
