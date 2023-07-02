@@ -101,7 +101,6 @@ private suspend fun runExp(
     when (nNodes) {
         200 -> sleep(40000)
         20 -> sleep(20000)
-        1 -> sleep(5000)
         else -> throw Exception("Invalid number of nodes $nNodes")
     }
 
@@ -140,21 +139,12 @@ private suspend fun startAllClients(
                 "-p", "updateproportion=${(100 - readPercent) / 100.0}",
             )
 
+            // Generate client path
+
             when (dataDistribution) {
-                "global" -> {
-                    cmd.add("-p")
-                    cmd.add("workload=site.ycsb.workloads.EdgeFixedWorkload")
-                    cmd.add("-p")
-                    cmd.add("tables=${partitions.values.joinToString(",")}")
-                }
-
                 "local" -> {
-
-                    val tables = if (nodeSlice != -1) "${partitions[nodeSlice]!!}," +
-                            "${partitions[(nodeSlice + 1) % partitions.size]}," +
-                            "${partitions[if (nodeSlice - 1 < 0) partitions.size - 1 else nodeSlice - 1]}"
+                    val tables = if (nodeSlice != -1) partitions[nodeSlice]!!
                     else partitions.values.joinToString(",")
-
                     cmd.add("-p")
                     cmd.add("workload=site.ycsb.workloads.EdgeFixedWorkload")
                     cmd.add("-p")

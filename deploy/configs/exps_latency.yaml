@@ -4,7 +4,7 @@ exps:
     name: "latency"
     duration: 60
 
-    clientPersistence: [1, 2, 5, 10000 ]
+    clientPersistence: [1, 2, 3, 5, 10000 ]
 
     #    tcSetup: [ "tc_1.yaml","tc_2.yaml", "tc_3.yaml" ]
     tcSetup: [ "tc_1.yaml"]

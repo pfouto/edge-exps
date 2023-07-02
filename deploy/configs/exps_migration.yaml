@@ -16,9 +16,14 @@ exps:
     limit: 100
 
     #    readPercents: [95, 50, 0]
-    readPercents: [ 0 ]
-
+    readPercents: [ 95 ]
     dataDistribution: [ "local" ]
+
+    migrationPattern: ["random", "commute"]
+
+
+    gcThreshold: 1000
+    gcPeriod: 1000
 
     partitions:
       0: "A"
