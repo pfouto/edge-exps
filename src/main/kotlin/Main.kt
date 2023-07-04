@@ -1,3 +1,4 @@
+import cassandra.runCassandra
 import com.charleskorn.kaml.*
 import fail.runFail
 import kotlinx.coroutines.*
@@ -139,21 +140,12 @@ suspend fun run(me: String, hosts: List<String>, arguments: Map<String, String>)
 
     expNodes.items.forEach {
         when(val expType = it.yamlMap.get<YamlScalar>("type")!!.content) {
-            "micro" -> {
-                runMicro(it, proxies, dockerConfig)
-            }
-            "fails" -> {
-                runFail(it, proxies, dockerConfig)
-            }
-            "periodic" -> {
-                runPeriodic(it, proxies, dockerConfig)
-            }
-            "mobility" -> {
-                runMobility(it, proxies, dockerConfig)
-            }
-            "latency" -> {
-                runLatency(it, proxies, dockerConfig)
-            }
+            "micro" -> runMicro(it, proxies, dockerConfig)
+            "fails" -> runFail(it, proxies, dockerConfig)
+            "periodic" -> runPeriodic(it, proxies, dockerConfig)
+            "mobility" -> runMobility(it, proxies, dockerConfig)
+            "latency" -> runLatency(it, proxies, dockerConfig)
+            "cassandra" -> runCassandra(it, proxies, dockerConfig)
 
             else -> throw IllegalArgumentException("Unknown experiment type: $expType")
         }

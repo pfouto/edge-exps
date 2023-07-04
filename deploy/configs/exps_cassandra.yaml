@@ -1,0 +1,19 @@
+dockerConfig: "cass_docker_config.yaml"
+exps:
+  - type: "cassandra" #name of the exp
+    name: "cassandra"
+
+    tcSetup: [ "tc_1.yaml", "tc_2.yaml", "tc_3.yaml"]
+    #    nodes: [1, 20, 200]
+    nodes: [ 1 ]
+
+    duration: 120
+    partitions:
+      0: "A"
+      1: "B"
+      2: "C"
+      3: "D"
+      4: "E"
+      5: "F"
+      6: "G"
+      7: "H"

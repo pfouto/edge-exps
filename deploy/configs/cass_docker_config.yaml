@@ -1,0 +1,20 @@
+## setup information
+nNodes: 200
+maxNodesPerMachine: 40
+
+#nClients: 299
+nClients: 199
+maxClientsPerMachine: 67
+
+imageLoc: "/home/pfouto/edge/exps/docker/cass_tc.tar"
+imageTag: "cass_tc:0.1"
+
+logsFolder: "/home/pfouto/edge/logs"
+tcFolder: "/home/pfouto/edge/exps/tc"
+serverFolder: "/home/pfouto/edge/server"
+clientFolder: "/home/pfouto/edge/client"
+
+networkName: "edgenet"
+subnet: "10.10.0.0/16" #docker network ip range
+gateway: "10.10.0.1" #docker network gateway
+
