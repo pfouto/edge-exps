@@ -18,5 +18,8 @@ data class FailConfig(
     val limit: Int,
     val readPercents: List<Int>,
     val clientPersistence: List<Int>,
-    val propagateTimeout: Int
+    val propagateTimeout: Int,
+    val modes: List<String>,
+    val steps: Int,
+    val stepInterval: Int,
 )

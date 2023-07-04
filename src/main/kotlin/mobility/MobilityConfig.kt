@@ -17,6 +17,7 @@ data class MobilityConfig(
     val randomDegrees: Int,
     val randomStart: Int,
     val randomDuration: Int,
+    val randomInterval: Int,
     val limit: Int,
 
     val gcThreshold: Int,
@@ -27,4 +28,9 @@ data class MobilityConfig(
     val commuteHome: Int,
     val commuteDuration: Int,
     val workRadius: Int,
+
+    val pogoMoveDuration: Int,
+    val pogoMoveInterval: Int,
+    val pogoRadius: Int,
+    val pogoStart: Int
 )

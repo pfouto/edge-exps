@@ -3,7 +3,7 @@ exps:
   - type: "mobility" #name of the exp
     name: "mobility"
 
-    duration: 120
+    duration: 260
 
     #    tcSetup: [ "tc_1.yaml","tc_2.yaml", "tc_3.yaml" ]
     tcSetup: [ "tc_1.yaml", "tc_2.yaml", "tc_3.yaml"]
@@ -11,25 +11,30 @@ exps:
     nodes: [ 200 ]
     #    threads: [ 1, 2, 4, 8, 16, 32, 64, 128, 256, 512 ]
     # threads: 16
-    threads: 4
-    limit: 50
+    threads: 16
+    limit: 200
     recordCount: 100
 
     #    readPercents: [95, 50, 0]
     readPercents: [ 95 ]
     dataDistribution: [ "local" ]
 
-    migrationPattern: ["commute", "random"]
+    migrationPattern: ["random", "commute", "pogo"]
 
-    randomDegrees: 90
-    randomStart: 20
-    randomDuration: 70
+    randomDegrees: 45
+    randomStart: 30
+    randomDuration: 40
+    randomInterval: 30
 
-
-    commuteWork: 20
-    commuteHome: 70
-    commuteDuration: 20
+    commuteWork: 30
+    commuteHome: 80
+    commuteDuration: 30
     workRadius: 60
+
+    pogoStart: 30
+    pogoMoveDuration: 10
+    pogoMoveInterval: 20
+    pogoRadius: 40
 
 
     gcThreshold: 10000

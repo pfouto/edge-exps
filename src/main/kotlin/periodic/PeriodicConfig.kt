@@ -16,5 +16,8 @@ data class PeriodicConfig(
     val readPercents: List<Int>,
     val periodicRemoteInterval: Long,
     val periodicRemoteDuration: Long,
-    val recordCount: Int
+    val recordCount: Int,
+    val periodicModes: List<String>,
+    val gcThreshold: Int,
+    val gcInterval: Int,
 )

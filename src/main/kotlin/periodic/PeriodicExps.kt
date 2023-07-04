@@ -20,13 +20,14 @@ import utils.DockerConfig
 import utils.TcConfig
 import java.io.File
 import java.io.FileInputStream
+import kotlin.math.exp
 import kotlin.math.pow
 import kotlin.math.sqrt
 
 suspend fun runPeriodic(expYaml: YamlNode, proxies: Proxies, dockerConfig: DockerConfig) {
     val expConfig = Yaml.default.decodeFromString<PeriodicConfig>(expYaml.contentToString())
     val nExps = expConfig.tcSetup.size * expConfig.nodes.size *
-            expConfig.readPercents.size
+            expConfig.readPercents.size * expConfig.periodicModes.size
     println("------ Starting exp ${expConfig.name} with $nExps experiments ------")
     var nExp = 0
     expConfig.tcSetup.forEach { tcConfigFile ->
@@ -43,29 +44,29 @@ suspend fun runPeriodic(expYaml: YamlNode, proxies: Proxies, dockerConfig: Docke
             val nodes = allNodes.take(nNodes)
             if (nodes.size < nNodes)
                 throw Exception("Not enough nodes for experiment")
-
-            expConfig.readPercents.forEach read@{ readPercent ->
+            expConfig.periodicModes.forEach { mode ->
+                expConfig.readPercents.forEach read@{ readPercent ->
                     nExp++
                     val tcBaseFileNumber = tcConfigFile.split(".")[0].split("_")[1]
                     val logsPath =
-                        "${expConfig.name}/${nNodes}n_${readPercent}r_${tcBaseFileNumber}"
+                        "${expConfig.name}/${nNodes}n_${mode}_${readPercent}r_${tcBaseFileNumber}"
 
                     if (!File("${dockerConfig.logsFolder}/$logsPath").exists()) {
                         println(
                             "---------- Running experiment $nExp/$nExps with $tcConfigFile, $nNodes nodes, " +
-                                    "$readPercent reads -------"
+                                    "$mode, $readPercent reads -------"
                         )
                     } else {
                         println(
                             "---------- Skipping existing $nExp/$nExps with $tcConfigFile, $nNodes nodes, " +
-                                    "$readPercent reads -------"
+                                    "$mode, $readPercent reads -------"
                         )
                         return@read
                     }
 
 
                     runExp(
-                        nodes, clients, locationsMap, expConfig, nNodes,
+                        nodes, clients, locationsMap, expConfig, nNodes, mode,
                         readPercent, "/logs/$logsPath"
                     )
                     FileUtils.deleteDirectory(File("${dockerConfig.logsFolder}/$logsPath"))
@@ -81,9 +82,9 @@ suspend fun runPeriodic(expYaml: YamlNode, proxies: Proxies, dockerConfig: Docke
                             }
                         }
                     }
+                }
             }
         }
-
         removeAllContainers(proxies)
         proxies.allProxies.forEach { it.deleteVolume("logs") }
     }
@@ -91,7 +92,7 @@ suspend fun runPeriodic(expYaml: YamlNode, proxies: Proxies, dockerConfig: Docke
 
 private suspend fun runExp(
     nodes: List<DockerProxy.ContainerProxy>, clients: List<DockerProxy.ContainerProxy>,
-    locationsMap: Map<Int, Location>, expConfig: PeriodicConfig, nNodes: Int,
+    locationsMap: Map<Int, Location>, expConfig: PeriodicConfig, nNodes: Int, mode: String,
     readPercent: Int, logsPath: String,
 ) {
     startAllNodes(nodes, locationsMap, logsPath, expConfig)
@@ -104,7 +105,7 @@ private suspend fun runExp(
     }
 
     //println("Starting clients")
-    startAllClients(clients, locationsMap, nNodes, readPercent, logsPath, expConfig)
+    startAllClients(clients, locationsMap, nNodes, mode, readPercent, logsPath, expConfig)
 
     //println("Waiting for experiment to finish")
     sleep(expConfig.duration * 1000L)
@@ -118,9 +119,10 @@ private suspend fun runExp(
 
 private suspend fun startAllClients(
     clients: List<DockerProxy.ContainerProxy>, locationsMap: Map<Int, Location>,
-    nNodes: Int, readPercent: Int, logsPath: String,
+    nNodes: Int, mode:String, readPercent: Int, logsPath: String,
     expConfig: PeriodicConfig,
 ) {
+    val random = java.util.Random()
     coroutineScope {
         clients.forEach { container ->
             val hostname = container.inspect.config.hostName!!
@@ -167,6 +169,17 @@ private suspend fun startAllClients(
                     cmd.add("remote_interval=${expConfig.periodicRemoteInterval}")
                     cmd.add("-p")
                     cmd.add("recordcount=${expConfig.recordCount}")
+                    when (mode) {
+                        "coordinated" -> {
+                            cmd.add("-p")
+                            cmd.add("remote_offset=${expConfig.periodicRemoteInterval}")
+                        }
+                        "uncoordinated" -> {
+                            val offset = expConfig.periodicRemoteInterval + random.nextInt(expConfig.periodicRemoteInterval.toInt())
+                            cmd.add("-p")
+                            cmd.add("remote_offset=${offset}")
+                        }
+                    }
                 }
 
                 else -> throw Exception("Invalid data distribution $expConfig.dataDistribution")
@@ -179,7 +192,7 @@ private suspend fun startAllClients(
 }
 
 private fun closestActiveNode(clientNumber: Int, locationsMap: Map<Int, Location>, nNodes: Int): Pair<Int, Location> {
-    if(nNodes == 1) return Pair(0, locationsMap[0]!!)
+    if (nNodes == 1) return Pair(0, locationsMap[0]!!)
 
     val clientLoc = locationsMap[clientNumber]!!
     val activeNodes = locationsMap.filter { it.key < nNodes && it.key != 0 }
@@ -197,7 +210,6 @@ private suspend fun startAllNodes(
     logsPath: String,
     expConfig: PeriodicConfig,
 ) {
-    val gcThreshold = (expConfig.periodicRemoteDuration * 1).toLong()
 
     //print("Starting nodes... ")
     coroutineScope {
@@ -209,7 +221,7 @@ private suspend fun startAllNodes(
             val cmd = mutableListOf(
                 "./start.sh", "$logsPath/$hostname", "hostname=$hostname", "region=eu", "datacenter=$dc",
                 "location_x=${location.x}", "location_y=${location.y}", "tree_builder_nnodes=${nodes.size}",
-                "gc_threshold=$gcThreshold", "gc_period=${gcThreshold / 2}", "log_n_objects=1000"
+                "gc_threshold=${expConfig.gcThreshold}", "gc_period=${expConfig.gcInterval}", "log_n_objects=1000"
             )
 
             launch(Dispatchers.IO) {

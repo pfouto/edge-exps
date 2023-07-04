@@ -149,18 +149,27 @@ private suspend fun startAllClients(
                 "-p", "recordcount=${expConfig.recordCount}",
             )
 
-            val hotZones = mutableListOf<Point>()
-            hotZones.add(Point(150.0, 0.0))
-            hotZones.add(Point(-150.0, 0.0))
-            hotZones.add(Point(0.0, 150.0))
-            hotZones.add(Point(0.0, -150.0))
+            val commuteHotZones = mutableListOf<Point>()
+            commuteHotZones.add(Point(150.0, 0.0))
+            commuteHotZones.add(Point(-150.0, 0.0))
+            commuteHotZones.add(Point(0.0, 150.0))
+            commuteHotZones.add(Point(0.0, -150.0))
+
+            val pogoHotZones = mutableListOf<Point>()
+            pogoHotZones.add(Point(100.0, 0.0))
+            pogoHotZones.add(Point(100.0, 100.0))
+            pogoHotZones.add(Point(-50.0, 50.0))
+            pogoHotZones.add(Point(-50.0, -150.0))
+            pogoHotZones.add(Point(100.0, -150.0))
+            pogoHotZones.add(Point(100.0, -50.0))
+            pogoHotZones.add(Point(100.0, 0.0))
 
             val path = when (migrationPattern) {
                 "commute" -> {
                     generateCommuteClientPath(
                         locationsMap, nNodes, locationsMap[clientNumber]!!,
                         expConfig.commuteWork, expConfig.commuteHome, expConfig.commuteDuration, expConfig.workRadius,
-                        hotZones
+                        commuteHotZones
                     )
                 }
 
@@ -168,13 +177,21 @@ private suspend fun startAllClients(
                     generateRandomClientPath(
                         locationsMap, nNodes, locationsMap[clientNumber]!!,
                         if (Math.random() < 0.5) expConfig.randomDegrees else -1 * expConfig.randomDegrees,
-                        expConfig.randomStart, expConfig.randomDuration
+                        expConfig.randomStart, expConfig.randomDuration, expConfig.randomInterval
+                    )
+                }
+
+                "pogo" -> {
+                    generatePogoClientPath(
+                        locationsMap, nNodes, locationsMap[clientNumber]!!,
+                        expConfig.pogoStart, expConfig.pogoMoveDuration, expConfig.pogoMoveInterval,
+                        expConfig.pogoRadius, pogoHotZones
                     )
                 }
 
                 else -> throw Exception("Invalid migration pattern $migrationPattern")
             }
-            println("Client $clientNumber path: $path")
+            //println("Client $clientNumber path: $path")
             val pathStringBuilder = StringBuilder()
             path.forEach { (time, nodeNumber) ->
                 pathStringBuilder.append("${time}:node-${nodeNumber},")
@@ -187,7 +204,9 @@ private suspend fun startAllClients(
 
             when (dataDistribution) {
                 "local" -> {
-                    val tables = if (nodeSlice != -1) partitions[nodeSlice]!!
+                    val tables = if (nodeSlice != -1) "${partitions[nodeSlice]!!}," +
+                            "${partitions[(nodeSlice + 1) % partitions.size]}," +
+                            "${partitions[if (nodeSlice - 1 < 0) partitions.size - 1 else nodeSlice - 1]}"
                     else partitions.values.joinToString(",")
                     cmd.add("-p")
                     cmd.add("workload=site.ycsb.workloads.EdgeFixedWorkload")
@@ -204,6 +223,7 @@ private suspend fun startAllClients(
     }
 }
 
+
 fun distanceTo(a: Point, b: Point): Double {
     return sqrt((a.x - b.x) * (a.x - b.x) + (a.y - b.y) * (a.y - b.y))
 }
@@ -214,14 +234,51 @@ private fun randomPointInRange(center: Point, radius: Int): Point {
     return Point(center.x + distance * cos(angle), center.y + distance * sin(angle))
 }
 
+fun generatePogoClientPath(
+    locationsMap: Map<Int, Location>,
+    nNodes: Int,
+    location: Location,
+    start: Int,
+    duration: Int,
+    interval: Int,
+    radius: Int,
+    pogoHotZones: MutableList<Point>,
+): List<Pair<Int, Int>> {
+    val path = mutableListOf<Pair<Int, Int>>()
+
+    val steps = pogoHotZones.size
+    var stepStart = Point(location.x, location.y)
+    path.add(Pair(0, closestActiveNode(Location(stepStart.x, stepStart.y, -1), locationsMap, nNodes).first))
+
+    for (step in 0 until steps) {
+        val stepEnd = randomPointInRange(pogoHotZones[step],radius)
+        val moveStart = start + (step * (duration+interval))
+        for (time in 0 .. duration) {
+            val movedPoint = Point(
+                stepStart.x + (stepEnd.x - stepStart.x) * time / duration,
+                stepStart.y + (stepEnd.y - stepStart.y) * time / duration
+            )
+            val currentClosestNode =
+                closestActiveNode(Location(movedPoint.x, movedPoint.y, -1), locationsMap, nNodes).first
+            if (path.last().second != currentClosestNode)
+                path.add(Pair(time + moveStart, currentClosestNode))
+        }
+        stepStart = stepEnd
+    }
+    return path
+}
+
 fun generateCommuteClientPath(
     locationsMap: Map<Int, Location>, nNodes: Int, clientLocation: Location,
     commuteWork: Int, commuteHome: Int, commuteDuration: Int, workRadius: Int, hotZones: MutableList<Point>,
 ): List<Pair<Int, Int>> {
+    val random = java.util.Random()
     val path = mutableListOf<Pair<Int, Int>>()
     val sLocation = Point(clientLocation.x, clientLocation.y)
-    val closestHotzone = hotZones.minBy { distanceTo(it, sLocation) }
-    val workLocation = randomPointInRange(closestHotzone, workRadius)
+    val sortedHotZones = hotZones.sortedBy { distanceTo(it, sLocation) }
+    val rand = random.nextDouble()
+    val chosenHotZone = sortedHotZones[if (rand < 0.5) 0 else sortedHotZones.size - 1]
+    val workLocation = randomPointInRange(chosenHotZone, workRadius)
     path.add(Pair(0, closestActiveNode(Location(sLocation.x, sLocation.y, -1), locationsMap, nNodes).first))
     for (time in 0..commuteDuration) {
         val movedPoint = Point(
@@ -249,18 +306,23 @@ fun generateCommuteClientPath(
 
 fun generateRandomClientPath(
     locationsMap: Map<Int, Location>, nNodes: Int, clientLocation: Location,
-    totalRotation: Int, start: Int, duration: Int,
+    totalRotation: Int, start: Int, duration: Int, interval: Int,
 ): List<Pair<Int, Int>> {
     val path = mutableListOf<Pair<Int, Int>>()
     val sLocation = Point(clientLocation.x, clientLocation.y)
     path.add(Pair(0, closestActiveNode(Location(sLocation.x, sLocation.y, -1), locationsMap, nNodes).first))
-    for (time in 0..duration) {
-        val rotatedLocation = sLocation.rotateAroundCenter(totalRotation.toDouble() * time / duration)
-        val currentClosestNode =
-            closestActiveNode(Location(rotatedLocation.x, rotatedLocation.y, -1), locationsMap, nNodes).first
-        if (path.last().second != currentClosestNode)
-            path.add(Pair(time + start, currentClosestNode))
+
+    for (randomStep in 0 until 3) {
+        for (time in 0..duration) {
+            val rotatedLocation =
+                sLocation.rotateAroundCenter((totalRotation * randomStep) + (totalRotation.toDouble() * time / duration))
+            val currentClosestNode =
+                closestActiveNode(Location(rotatedLocation.x, rotatedLocation.y, -1), locationsMap, nNodes).first
+            if (path.last().second != currentClosestNode)
+                path.add(Pair(start + (randomStep * (duration + interval)) + time, currentClosestNode))
+        }
     }
+
 
     return path
 }

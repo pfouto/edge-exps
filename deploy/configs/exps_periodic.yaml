@@ -6,19 +6,24 @@ exps:
     dataDistribution: "periodic"
 
     #    tcSetup: [ "tc_1.yaml","tc_2.yaml", "tc_3.yaml" ]
-    tcSetup: [ "tc_1.yaml", "tc_2.yaml", "tc_3.yaml" ]
+    tcSetup: [ "tc_1.yaml", "tc_2.yaml", "tc_3.yaml"]
     #    nodes: [1, 20, 200]
     nodes: [ 1, 20, 200 ]
     #    readPercents: [95, 50, 0]
-    readPercents: [ 95, 50 ]
+    readPercents: [ 95 ]
     #    threads: [ 1, 2, 4, 8, 16, 32, 64, 128, 256, 512 ]
 
     threads: 16
     limit: 200
     recordCount: 500
 
+    periodicModes: ["coordinated", "uncoordinated"]
+
     periodicRemoteInterval: 30000
     periodicRemoteDuration: 10000
+
+    gcThreshold: 10000
+    gcInterval: 5000
 
     partitions:
       0: "A"

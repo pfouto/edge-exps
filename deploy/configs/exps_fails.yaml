@@ -2,12 +2,12 @@ dockerConfig: "docker_config.yaml"
 exps:
   - type: "fails" #name of the exp
     name: "fails"
-    duration: 90
-    failAt: 40
+    duration: 60
+    failAt: 30
 
-    clientPersistence: [1, 2, 5 ]
+    clientPersistence: [1, 100 ]
 
-    failPercents: [ 10, 25, 50 ]
+    failPercents: [ 25, 50 ]
     #    tcSetup: [ "tc_1.yaml","tc_2.yaml", "tc_3.yaml" ]
     tcSetup: [ "tc_1.yaml", "tc_2.yaml", "tc_3.yaml"]
     #    nodes: [1, 50, 100, 300]
@@ -17,9 +17,13 @@ exps:
 
     threads: 16
     limit: 50
-    propagateTimeout: 50
+    propagateTimeout: 20
 
     dataDistribution: [ "global" ]
+
+    modes: ["simultaneous", "continuous"]
+    steps: 5
+    stepInterval: 2
 
     partitions:
       0: "A"
