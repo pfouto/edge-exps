@@ -6,6 +6,11 @@ RUN set -eux; \
     apt-get install -y --no-install-recommends \
       bc \
         iproute2 \
+        kmod \
+    iputils-ping \
+    psmisc \
         nload;
+
+#COPY cassandra-docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 
 ENTRYPOINT ["/tc/setupTc.sh"]

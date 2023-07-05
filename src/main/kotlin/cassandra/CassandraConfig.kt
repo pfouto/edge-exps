@@ -10,5 +10,6 @@ data class CassandraConfig(
     val nodes: List<Int>,
     val duration: Int,
     val partitions: Map<Int, String>,
+    val dataDistribution: List<String>,
 
     )

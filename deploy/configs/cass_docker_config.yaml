@@ -1,9 +1,9 @@
 ## setup information
-nNodes: 200
+nNodes: 20
 maxNodesPerMachine: 40
 
 #nClients: 299
-nClients: 199
+nClients: 10
 maxClientsPerMachine: 67
 
 imageLoc: "/home/pfouto/edge/exps/docker/cass_tc.tar"

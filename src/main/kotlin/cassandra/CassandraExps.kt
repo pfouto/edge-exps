@@ -19,8 +19,10 @@ import utils.DockerConfig
 import utils.TcConfig
 import java.io.File
 import java.io.FileInputStream
+import java.util.*
 import kotlin.math.pow
 import kotlin.math.sqrt
+import kotlin.system.exitProcess
 
 suspend fun runCassandra(expYaml: YamlNode, proxies: Proxies, dockerConfig: DockerConfig) {
     val expConfig = Yaml.default.decodeFromString<CassandraConfig>(expYaml.contentToString())
@@ -32,48 +34,51 @@ suspend fun runCassandra(expYaml: YamlNode, proxies: Proxies, dockerConfig: Dock
 
         val tcConfig = Yaml.default.decodeFromStream<TcConfig>(FileInputStream("configs/$tcConfigFile"))
         launchCassandraContainers(tcConfig, proxies, dockerConfig)
+
         val allNodes = (listOf(proxies.dcProxy) + proxies.nodeProxies).flatMap { it.listContainers() }
             .sortedBy { it.inspect.name.split("-")[1].toInt() }
         val clients =
             proxies.clientProxies.flatMap { it.listContainers() }.sortedBy { it.inspect.name.split("-")[1].toInt() }
 
         val locationsMap = readLocationsMapFromFile("tc/${tcConfig.nodesFile}")
-        expConfig.nodes.forEach skip@{ nNodes ->
-            val nodes = allNodes.take(nNodes)
-            if (nodes.size < nNodes)
-                throw Exception("Not enough nodes for experiment")
+        expConfig.nodes.forEach { nNodes ->
+            expConfig.dataDistribution.forEach skip@{ distribution ->
+                val nodes = allNodes.take(nNodes)
+                if (nodes.size < nNodes)
+                    throw Exception("Not enough nodes for experiment")
 
-            nExp++
-            val tcBaseFileNumber = tcConfigFile.split(".")[0].split("_")[1]
-            val logsPath =
-                "${expConfig.name}/${nNodes}n_${tcBaseFileNumber}"
+                nExp++
+                val tcBaseFileNumber = tcConfigFile.split(".")[0].split("_")[1]
+                val logsPath =
+                    "${expConfig.name}/${nNodes}n_${tcBaseFileNumber}"
 
-            if (!File("${dockerConfig.logsFolder}/$logsPath").exists()) {
-                println(
-                    "---------- Running experiment $nExp/$nExps with $tcConfigFile, $nNodes nodes"
-                )
-            } else {
-                println(
-                    "---------- Skipping existing $nExp/$nExps with $tcConfigFile, $nNodes nodes"
-                )
-                return@skip
-            }
-
-
-            //runExp(nodes, clients, locationsMap, expConfig, nNodes, "/logs/$logsPath")
-            FileUtils.deleteDirectory(File("${dockerConfig.logsFolder}/$logsPath"))
-
-            println("Getting logs")
-            coroutineScope {
-                (allNodes + clients).map { it.proxy }.distinct().forEach { p ->
-                    launch(Dispatchers.IO) {
-                        p.cp(
-                            "/logs/${logsPath}",
-                            "${dockerConfig.logsFolder}/${expConfig.name}"
-                        )
+                if (!File("${dockerConfig.logsFolder}/$logsPath").exists()) {
+                    println(
+                        "---------- Running experiment $nExp/$nExps with $tcConfigFile, $nNodes nodes"
+                    )
+                } else {
+                    println(
+                        "---------- Skipping existing $nExp/$nExps with $tcConfigFile, $nNodes nodes"
+                    )
+                    return@skip
+                }
 
 
-                    } //End thread
+                runExp(nodes, clients, locationsMap, expConfig, nNodes, "/logs/$logsPath", distribution)
+                FileUtils.deleteDirectory(File("${dockerConfig.logsFolder}/$logsPath"))
+
+                println("Getting logs")
+                coroutineScope {
+                    (allNodes + clients).map { it.proxy }.distinct().forEach { p ->
+                        launch(Dispatchers.IO) {
+                            p.cp(
+                                "/logs/${logsPath}",
+                                "${dockerConfig.logsFolder}/${expConfig.name}"
+                            )
+
+
+                        }
+                    }
                 }
             }
         }
@@ -85,27 +90,89 @@ suspend fun runCassandra(expYaml: YamlNode, proxies: Proxies, dockerConfig: Dock
 
 private suspend fun runExp(
     nodes: List<DockerProxy.ContainerProxy>, clients: List<DockerProxy.ContainerProxy>,
-    locationsMap: Map<Int, Location>, expConfig: CassandraConfig, nNodes: Int,logsPath: String,
+    locationsMap: Map<Int, Location>, expConfig: CassandraConfig, nNodes: Int, logsPath: String,
+    dataDistribution: String,
 ) {
-    startAllCassandras(nodes, locationsMap, logsPath)
-    //println("Waiting for tree to stabilize")
+
+    startAllCassandras(nodes, logsPath)
+
+    println("Waiting for cassandra to stabilize")
     when (nNodes) {
-        200 -> sleep(40000)
-        20 -> sleep(20000)
-        1 -> sleep(5000)
+        200 -> sleep(150000) // 2.5 minutes
+        20 -> sleep(120000) //2 minutes
+        1 -> sleep(90000) //1.5 minutes
         else -> throw Exception("Invalid number of nodes $nNodes")
     }
+
+    println("Creating keyspaces and tables")
+
+    val partitions = expConfig.partitions
+    val dcsPerPartition = mutableMapOf<String, MutableList<String>>()
+    partitions.values.forEach { p -> dcsPerPartition[p] = mutableListOf() }
+
+    //TODO create keyspaces and tables based on dataDistribution
+    when (dataDistribution) {
+        "local" -> {
+            nodes.forEach { n ->
+                val nodeNumber = n.inspect.name.split("-")[1].toInt()
+                if (nodeNumber == 0) {
+                    dcsPerPartition.forEach { (_, list) -> list.add("dc0") }
+                } else {
+                    val slice = locationsMap[nodeNumber]!!.slice
+                    dcsPerPartition[partitions[slice]]!!.add("dc${nodeNumber}")
+                    dcsPerPartition[partitions[(slice + 1) % partitions.size]]!!.add("dc${nodeNumber}")
+                    dcsPerPartition[partitions[if (slice - 1 < 0) partitions.size - 1 else slice - 1]]!!.add("dc${nodeNumber}")
+                }
+            }
+        }
+
+        "global" -> {
+            nodes.forEach { n ->
+                val nodeNumber = n.inspect.name.split("-")[1].toInt()
+                dcsPerPartition.forEach { (_, list) -> list.add("dc${nodeNumber}") }
+            }
+        }
+        else -> throw Exception("Invalid data distribution $dataDistribution")
+    }
+
+    val mainNode = nodes[0]
+    dcsPerPartition.forEach { (partition, dcs) ->
+        println("Creating keyspace $partition")
+        var keyspaceCommand =
+            "CREATE KEYSPACE IF NOT EXISTS $partition WITH REPLICATION = {'class': 'NetworkTopologyStrategy'"
+        dcs.forEach { dc -> keyspaceCommand = keyspaceCommand.plus(", '${dc}': 1") }
+        keyspaceCommand = keyspaceCommand.plus("};")
+        val command1 = arrayOf("cqlsh", "-e", keyspaceCommand)
+        mainNode.proxy.executeCommandSync(mainNode.inspect.id, command1)
+        val command2 = arrayOf(
+            "cqlsh", "-e", "'CREATE TABLE IF NOT EXISTS ${partition}.usertable (y_id varchar primary key, field0 varchar);'"
+        )
+        mainNode.proxy.executeCommandSync(mainNode.inspect.id, command2)
+    }
+
+    exitProcess(1)
 
     //println("Starting clients")
     //startAllClients(clients, locationsMap, nNodes, logsPath, expConfig)
 
     //println("Waiting for experiment to finish")
-    sleep(expConfig.duration * 1000L)
+    //sleep(expConfig.duration * 1000L)
 
     print("Stopping clients... ")
     stopEverything(clients)
     print("Stopping nodes... ")
     stopEverything(nodes)
+    print("Cleaning data... ")
+    coroutineScope {
+        nodes.forEach {
+            launch(Dispatchers.IO) {
+                it.proxy.executeCommand(it.inspect.id, arrayOf("rm", "-rf", "/var/lib/cassandra/commitlog"))
+                it.proxy.executeCommand(it.inspect.id, arrayOf("rm", "-rf", "/var/lib/cassandra/data"))
+                it.proxy.executeCommand(it.inspect.id, arrayOf("rm", "-rf", "/var/lib/cassandra/hints"))
+                it.proxy.executeCommand(it.inspect.id, arrayOf("rm", "-rf", "/var/lib/cassandra/saved_caches"))
+            }
+        }
+    }
     println("Done")
 }
 
@@ -177,24 +244,30 @@ private fun distance(loc1: Location, loc2: Location): Double {
 
 private suspend fun startAllCassandras(
     nodes: List<DockerProxy.ContainerProxy>,
-    locationsMap: Map<Int, Location>,
     logsPath: String,
 ) {
+    val seeds = nodes.joinToString(",") { it.inspect.config.hostName!! }
+
     //print("Starting nodes... ")
     coroutineScope {
-        val dc = nodes[0].inspect.config.hostName!!
         nodes.forEach { container ->
             val hostname = container.inspect.config.hostName!!
             val nodeNumber = hostname.split("-")[1].toInt()
-            val location = locationsMap[nodeNumber]!!
+
+            val env = listOf(
+                "CASSANDRA_CLUSTER_NAME=edgecluster",
+                "CASSANDRA_DC=dc$nodeNumber",
+                "CASSANDRA_ENDPOINT_SNITCH=GossipingPropertyFileSnitch",
+                "CASSANDRA_SEEDS=$seeds",
+                "HEAP_NEWSIZE=256M",
+                "MAX_HEAP_SIZE=2048M",
+            )
             val cmd = mutableListOf(
-                "./start.sh", "$logsPath/$hostname", "hostname=$hostname", "region=eu", "datacenter=$dc",
-                "location_x=${location.x}", "location_y=${location.y}", "tree_builder_nnodes=${nodes.size}",
-                "propagate_timeout=50"
+                "docker-entrypoint.sh", "cassandra", "-f"
             )
 
             launch(Dispatchers.IO) {
-                container.proxy.executeCommand(container.inspect.id, cmd.toTypedArray(), "/server")
+                container.proxy.executeCommand(container.inspect.id, cmd.toTypedArray(), env = env)
             }
         }
     }
@@ -207,11 +280,15 @@ private suspend fun launchCassandraContainers(tcConfig: TcConfig, proxies: Proxi
 
     val nodeContainersInfo = mutableMapOf<String, MutableList<Pair<Int, String>>>()
     proxies.nodeProxies.forEach {
-        //TODO setup ramfs and folders
-
+        DockerProxy.runCommand(it.shortHost, "mount /mnt/ramdisk")
+        DockerProxy.runCommand(it.shortHost, "rm -rf /mnt/ramdisk/cassandra")
+        DockerProxy.runCommand(it.shortHost, "mkdir /mnt/ramdisk/cassandra")
         nodeContainersInfo[it.shortHost] = mutableListOf()
     }
     nodeContainersInfo[proxies.dcProxy.shortHost] = mutableListOf()
+    DockerProxy.runCommand(proxies.dcProxy.shortHost, "mount /mnt/ramdisk")
+    DockerProxy.runCommand(proxies.dcProxy.shortHost, "rm -rf /mnt/ramdisk/cassandra")
+    DockerProxy.runCommand(proxies.dcProxy.shortHost, "mkdir /mnt/ramdisk/cassandra")
 
     val nodeIps = File("tc/serverIps.txt").readLines()
 
@@ -220,6 +297,7 @@ private suspend fun launchCassandraContainers(tcConfig: TcConfig, proxies: Proxi
         nodeContainersInfo[proxy.shortHost]!!.add(Pair(containerNumber, nodeIps[containerNumber]))
     }
     nodeContainersInfo[proxies.dcProxy.shortHost]!!.add(Pair(0, nodeIps[0]))
+
 
     val clientContainersInfo = mutableMapOf<String, MutableList<Pair<Int, String>>>()
     proxies.clientProxies.forEach { clientContainersInfo[it.shortHost] = mutableListOf() }
@@ -234,8 +312,9 @@ private suspend fun launchCassandraContainers(tcConfig: TcConfig, proxies: Proxi
     val tcVol = Volume("/tc")
     val serverVol = Volume("/server")
     val clientVol = Volume("/client")
+    val cassVol = Volume("/var/lib/cassandra")
 
-    val volumes = Volumes(modulesVol, logsVol, tcVol, serverVol, clientVol)
+    val volumes = Volumes(modulesVol, logsVol, tcVol, serverVol, clientVol, cassVol)
 
     val binds = Binds(
         Bind("/lib/modules", modulesVol),
@@ -245,8 +324,6 @@ private suspend fun launchCassandraContainers(tcConfig: TcConfig, proxies: Proxi
         Bind(dockerConfig.clientFolder, clientVol, AccessMode.ro)
     )
 
-    val hostConfigFull = HostConfig().withAutoRemove(true).withPrivileged(true).withCapAdd(Capability.SYS_ADMIN)
-        .withCapAdd(Capability.NET_ADMIN).withBinds(binds).withNetworkMode(dockerConfig.networkName)
     val hostConfigLimited = HostConfig().withAutoRemove(true).withPrivileged(true).withCapAdd(Capability.SYS_ADMIN)
         .withCapAdd(Capability.NET_ADMIN).withBinds(binds).withNetworkMode(dockerConfig.networkName)
         .withCpuQuota(200000)
@@ -255,19 +332,23 @@ private suspend fun launchCassandraContainers(tcConfig: TcConfig, proxies: Proxi
     val createdChannel: Channel<String> = Channel(totalContainers)
     coroutineScope {
         async(Dispatchers.IO) {
-
             //println(nodeContainersInfo.map { it.key to it.value.size })
             val nodeCallbacks = (listOf(proxies.dcProxy) + proxies.nodeProxies).map {
                 async(Dispatchers.IO) {
-                    it.createServerContainers(
+                    nodeContainersInfo[it.shortHost]!!.forEach { p ->
+                        DockerProxy.runCommand(it.shortHost, "mkdir /mnt/ramdisk/cassandra/node-${p.first}")
+                    }
+                    it.createServerContainersCassandra(
                         nodeContainersInfo[it.shortHost]!!,
                         dockerConfig.imageTag,
-                        hostConfigFull,
-                        hostConfigLimited,
+                        200000,
+                        dockerConfig.networkName,
+                        binds,
                         volumes,
                         tcConfig.latencyFile,
                         dockerConfig.nNodes,
-                        createdChannel
+                        createdChannel,
+                        cassVol
                     )
                 }
             }

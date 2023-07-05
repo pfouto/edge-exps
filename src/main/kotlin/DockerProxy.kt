@@ -77,7 +77,7 @@ class DockerProxy(private val host: String) {
             client.leaveSwarmCmd().withForceEnabled(true).exec()
         } catch (e: DockerException) {
             if (e.httpStatus == 503)
-                //println("Swarm already left on $shortHost")
+            //println("Swarm already left on $shortHost")
             else
                 throw e
         }
@@ -132,8 +132,8 @@ class DockerProxy(private val host: String) {
         try {
             val exec = client.copyArchiveFromContainerCmd(container.inspect.id, resource).exec()
             TarArchiveInputStream(exec).use { tarStream -> unTar(tarStream, File(dest)) }
-        } catch (e: NotFoundException){
-            if(e.httpStatus == 404){
+        } catch (e: NotFoundException) {
+            if (e.httpStatus == 404) {
                 //println("No logs in $shortHost ${container.inspect.name}")
             } else
                 throw e
@@ -181,10 +181,44 @@ class DockerProxy(private val host: String) {
         }
     }
 
+    suspend fun createServerContainersCassandra(
+        pairs: MutableList<Pair<Int, String>>, imageTag: String, quotaLimit: Long, networkName: String,
+        baseBinds: Binds, volumes: Volumes, latencyFile: String, nServers: Int, channel: Channel<String>,
+        cassVolume: Volume
+    ) {
+
+
+        //println("Creating ${pairs.size} containers on $shortHost")
+        pairs.forEach { (number, ip) ->
+            val bindList = baseBinds.binds + Bind("/mnt/ramdisk/cassandra/node-$number", cassVolume)
+            val binds = Binds(*bindList)
+
+            if (number == 0) {
+                val hostConfigFull = HostConfig().withAutoRemove(true).withPrivileged(true)
+                    .withCapAdd(Capability.SYS_ADMIN).withCapAdd(Capability.NET_ADMIN).withBinds(binds)
+                    .withNetworkMode(networkName)
+
+                createContainer(
+                    "node", number, ip, imageTag, hostConfigFull, volumes,
+                    latencyFile, nServers, channel, 0, 10000, 1
+                )
+            } else {
+                val hostConfigLimited = HostConfig().withAutoRemove(true).withPrivileged(true)
+                    .withCapAdd(Capability.SYS_ADMIN).withCapAdd(Capability.NET_ADMIN).withBinds(binds)
+                    .withNetworkMode(networkName).withCpuQuota(200000)
+                createContainer(
+                    "node", number, ip, imageTag, hostConfigLimited, volumes, latencyFile,
+                    nServers, channel, 0, 1000, 1
+                )
+            }
+        }
+    }
+
+
     suspend fun createClientContainers(
         pairs: MutableList<Pair<Int, String>>, imageTag: String, hostConfig: HostConfig,
         volumes: Volumes, latencyFile: String, nServers: Int, channel: Channel<String>,
-        overrideEntryPoint: String? = null
+        overrideEntryPoint: String? = null,
     ) {
         //println("Creating ${pairs.size} containers on $shortHost")
         pairs.forEach { (number, ip) ->
@@ -199,7 +233,7 @@ class DockerProxy(private val host: String) {
     private suspend fun createContainer(
         baseName: String, id: Int, ip: String, image: String, hostConfig: HostConfig, volumes: Volumes,
         latencyFile: String, nServers: Int, channel: Channel<String>, selfLatency: Int, bandwidth: Int,
-        latencyMultiplier: Int, overrideEntryPoint: String? = null
+        latencyMultiplier: Int, overrideEntryPoint: String? = null,
     ) {
         //println("Creating container $id on $shortHost")
         val name = "$baseName-$id"
@@ -208,10 +242,12 @@ class DockerProxy(private val host: String) {
         val command = client.createContainerCmd(image).withName(name).withHostName(name).withTty(true)
             .withAttachStderr(false).withAttachStdout(false)
             .withAttachStdin(false).withHostConfig(hostConfig).withVolumes(volumes.volumes.toList())
-            .withCmd(id.toString(), latencyFile, nServers.toString(), selfLatency.toString(), bandwidth.toString(),
-                latencyMultiplier.toString()).withIpv4Address(ip)
+            .withCmd(
+                id.toString(), latencyFile, nServers.toString(), selfLatency.toString(), bandwidth.toString(),
+                latencyMultiplier.toString()
+            ).withIpv4Address(ip)
 
-        if(overrideEntryPoint != null){
+        if (overrideEntryPoint != null) {
             command.withEntrypoint(overrideEntryPoint)
         }
 
@@ -228,18 +264,40 @@ class DockerProxy(private val host: String) {
 
     }
 
-    fun executeCommand(cId: String, cmd: Array<String>, workDir: String = "/"): String {
+    fun executeCommandSync(cId: String, cmd: Array<String>): String {
 
-        val create = client.execCreateCmd(cId).withCmd(*cmd).withWorkingDir(workDir).exec()
-        val exec = client.execStartCmd(create.id).withDetach(true)
+        val createCmd = client.execCreateCmd(cId).withCmd(*cmd).withAttachStdout(true)
+            .withAttachStderr(true)
+
+        val createExec = createCmd.exec()
+
+        val exec = client.execStartCmd(createExec.id).withDetach(false)
             .exec(object : ResultCallback.Adapter<Frame>() {
                 override fun onNext(item: Frame?) {
                     println(item?.toString())
                 }
             })
         exec.awaitCompletion()
-        runningCmds.add(create.id)
-        return create.id
+        return createExec.id
+    }
+
+    fun executeCommand(cId: String, cmd: Array<String>, workDir: String = "/", env: List<String>? = null): String {
+
+        val createCmd = client.execCreateCmd(cId).withCmd(*cmd).withWorkingDir(workDir)
+        if(env != null)
+            createCmd.withEnv(env)
+
+        val createExec = createCmd.exec()
+
+        val exec = client.execStartCmd(createExec.id).withDetach(true)
+            .exec(object : ResultCallback.Adapter<Frame>() {
+                override fun onNext(item: Frame?) {
+                    println(item?.toString())
+                }
+            })
+        exec.awaitCompletion()
+        runningCmds.add(createExec.id)
+        return createExec.id
     }
 
     fun waitAllRunningCmds() {
@@ -336,7 +394,7 @@ class DockerProxy(private val host: String) {
                     errorJob.join() // wait for error job to finish
 
                     process.waitFor()
-                    if(process.exitValue() != 0)
+                    if (process.exitValue() != 0)
                         println("$host exit value is ${process.exitValue()}")
                     process.exitValue()
                 }
@@ -344,6 +402,17 @@ class DockerProxy(private val host: String) {
             val sum = jobs.awaitAll().sum()
             if (sum != 0)
                 throw IllegalStateException("Failed to restart docker on all hosts")
+        }
+
+        suspend fun runCommand(host: String, cmd: String) = coroutineScope {
+
+            val process = Runtime.getRuntime()
+                .exec(arrayOf("ssh", "-n", host, cmd))
+
+            process.waitFor()
+            if (process.exitValue() != 0)
+                println("$host exit value is ${process.exitValue()} for command $cmd")
+            process.exitValue()
         }
 
     }
