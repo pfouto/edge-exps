@@ -206,7 +206,8 @@ private suspend fun startAllClients(
                 "-p", "hosts=$clientNode",
                 "-p", "readproportion=${readPercent / 100.0}",
                 "-p", "updateproportion=${(100 - readPercent) / 100.0}",
-                "-p", "cassandra.writeconsistencylevel=QUORUM"
+                "-p", "cassandra.writeconsistencylevel=QUORUM",
+                "-p", "cassandra.readconsistencylevel=QUORUM"
             )
 
             when (dataDistribution) {
