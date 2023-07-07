@@ -1,0 +1,59 @@
+dockerConfig: "cass_docker_config.yaml"
+exps:
+  - type: "micro_cassandra" #name of the exp
+    name: "micro_cassandra"
+    duration: 120
+
+    tcSetup: [ "tc_1.yaml"]
+    #    nodes: [1, 20, 200]
+    nodes: [ 1, 20, 200 ]
+
+    dataDistribution: [ "local", "global" ]
+
+    readPercents: [ 0, 50, 95, 100 ]
+    threads: [ 4, 8, 16]
+
+    threadLimit:
+      1:
+        global:
+          0: 128
+          50: 128
+          95: 384
+          100: 384
+        local:
+          0: 256
+          50: 384
+          95: 256
+          100: 384
+      20:
+        global:
+          0: 128
+          50: 128
+          95: 512
+          100: 2048
+        local:
+          0: 256
+          50: 384
+          95: 512
+          100: 2048
+      200:
+        global:
+          0: 128
+          50: 128
+          95: 512
+          100: 1024
+        local:
+          0: 256
+          50: 384
+          95: 512
+          100: 1024
+
+    partitions:
+      0: "a"
+      1: "b"
+      2: "c"
+      3: "d"
+      4: "e"
+      5: "f"
+      6: "g"
+      7: "h"

@@ -1,22 +1,21 @@
-dockerConfig: "docker_config.yaml"
+dockerConfig: "cass_docker_config.yaml"
 exps:
-  - type: "latency" #name of the exp
-    name: "latency"
+  - type: "latency_cassandra" #name of the exp
+    name: "latency_cassandra"
     duration: 60
 
-    clientPersistence: [1, 2, 3, 5, 10000 ]
+    clientPersistence: [1, 2, 3, 10000 ]
 
     #    tcSetup: [ "tc_1.yaml","tc_2.yaml", "tc_3.yaml" ]
-    tcSetup: [ "tc_1.yaml", "tc_2.yaml", "tc_3.yaml"]
+    tcSetup: [ "tc_1.yaml"]
     #    nodes: [1, 50, 100, 300]
     nodes: [ 1, 20, 200 ]
     #    readPercents: [95, 50, 0]
     readPercents: [ 0 ]
 
-    threads: 16
-    limit: 25
+    threads: 4
+    limit: 20
     recordCount: 100
-    propagateTimeout: 10
 
     dataDistribution: [ "global", "local" ]
 

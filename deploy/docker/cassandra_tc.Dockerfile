@@ -13,4 +13,6 @@ RUN set -eux; \
 
 #COPY cassandra-docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 
+COPY cassandra.yaml /etc/cassandra/cassandra.yaml
+
 ENTRYPOINT ["/tc/setupTc.sh"]

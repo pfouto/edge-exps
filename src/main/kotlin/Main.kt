@@ -1,4 +1,6 @@
-import cassandra.runCassandra
+import cassandra_latency.runCassandraLatency
+import cassandra_micro.runCassandraMicro
+import cassandra_periodic.runCassandraPeriodic
 import com.charleskorn.kaml.*
 import fail.runFail
 import kotlinx.coroutines.*
@@ -145,7 +147,9 @@ suspend fun run(me: String, hosts: List<String>, arguments: Map<String, String>)
             "periodic" -> runPeriodic(it, proxies, dockerConfig)
             "mobility" -> runMobility(it, proxies, dockerConfig)
             "latency" -> runLatency(it, proxies, dockerConfig)
-            "cassandra" -> runCassandra(it, proxies, dockerConfig)
+            "micro_cassandra" -> runCassandraMicro(it, proxies, dockerConfig)
+            "latency_cassandra" -> runCassandraLatency(it, proxies, dockerConfig)
+            "periodic_cassandra" -> runCassandraPeriodic(it, proxies, dockerConfig)
 
             else -> throw IllegalArgumentException("Unknown experiment type: $expType")
         }
