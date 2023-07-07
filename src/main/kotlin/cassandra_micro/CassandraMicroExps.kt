@@ -106,7 +106,7 @@ private suspend fun runExp(
 
     println("Waiting for cassandra to stabilize")
     when (nNodes) {
-        200 -> sleep(12000) // 2.5 minutes
+        200 -> sleep(120000) // 2.5 minutes
         20 -> sleep(120000) //2 minutes
         1 -> sleep(80000) //1.5 minutes
         else -> throw Exception("Invalid number of nodes $nNodes")
