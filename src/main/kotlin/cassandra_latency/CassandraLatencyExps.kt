@@ -25,12 +25,12 @@ import kotlin.system.exitProcess
 
 suspend fun runCassandraLatency(expYaml: YamlNode, proxies: Proxies, dockerConfig: DockerConfig) {
     val expConfig = Yaml.default.decodeFromString<CassandraLatencyConfig>(expYaml.contentToString())
+    val nExps = expConfig.tcSetup.size * expConfig.nodes.size * expConfig.dataDistribution.size *
+            expConfig.readPercents.size * expConfig.clientPersistence.size
+    var nExp = 0
     expConfig.tcSetup.forEach { tcConfigFile ->
-        val nExps = expConfig.tcSetup.size * expConfig.nodes.size * expConfig.dataDistribution.size *
-                expConfig.readPercents.size * expConfig.clientPersistence.size
 
         println("------ Starting exp ${expConfig.name} with $nExps experiments ------")
-        var nExp = 0
 
         val tcConfig = Yaml.default.decodeFromStream<TcConfig>(FileInputStream("configs/$tcConfigFile"))
         launchCassandraContainers(tcConfig, proxies, dockerConfig)

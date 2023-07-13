@@ -7,7 +7,7 @@ exps:
     clientPersistence: [1, 2, 3, 10000 ]
 
     #    tcSetup: [ "tc_1.yaml","tc_2.yaml", "tc_3.yaml" ]
-    tcSetup: [ "tc_1.yaml"]
+    tcSetup: [ "tc_1.yaml", "tc_2.yaml", "tc_3.yaml"]
     #    nodes: [1, 50, 100, 300]
     nodes: [ 1, 20, 200 ]
     #    readPercents: [95, 50, 0]
@@ -17,7 +17,7 @@ exps:
     limit: 20
     recordCount: 100
 
-    dataDistribution: [ "global", "local" ]
+    dataDistribution: ["local" ]
 
     partitions:
       0: "A"
