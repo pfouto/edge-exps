@@ -1,0 +1,29 @@
+dockerConfig: "docker_config.yaml"
+exps:
+  - type: "micro" #name of the exp
+    name: "performance_test"
+    duration: 120
+
+    tcSetup: [ "tc_1.yaml" ]
+    nodes: [ 20 ]
+    dataDistribution: [ "local" ]
+    readPercents: [ 0 ]
+    threads: [ 8]
+
+    threadLimit:
+      20:
+        local:
+          0: 256
+          50: 384
+          95: 512
+          100: 2048
+
+    partitions:
+      0: "A"
+      1: "B"
+      2: "C"
+      3: "D"
+      4: "E"
+      5: "F"
+      6: "G"
+      7: "H"
