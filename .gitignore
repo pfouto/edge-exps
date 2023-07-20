@@ -1,5 +1,5 @@
 deploy/docker/tc.tar
-deploy/experiments.jar
+deploy/docker/cass_tc.tar
 
 .gradle
 build/
