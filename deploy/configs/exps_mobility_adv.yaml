@@ -1,0 +1,53 @@
+dockerConfig: "docker_config.yaml"
+exps:
+  - type: "mobilityAdv" #name of the exp
+    name: "mobility_test"
+
+    duration: 90
+
+    #    tcSetup: [ "tc_1.yaml","tc_2.yaml", "tc_3.yaml" ]
+    tcSetup: [ "tc_1.yaml"]
+    #    nodes: [1, 50, 100, 300]
+    nodes: [ 200 ]
+    #    threads: [ 1, 2, 4, 8, 16, 32, 64, 128, 256, 512 ]
+    # threads: 16
+    threads: 2
+    limit: 20
+    recordCount: 100
+
+    #    readPercents: [95, 50, 0]
+    readPercents: [ 95 ]
+    dataDistribution: [ "local" ]
+
+    migrationPattern: ["random"]
+
+    treeBuilderSubList: ["wide", "centralized", "deep"]
+
+    randomDegrees: 45
+    randomStart: 30
+    randomDuration: 40
+    randomInterval: 30
+
+    commuteWork: 30
+    commuteHome: 80
+    commuteDuration: 30
+    workRadius: 60
+
+    pogoStart: 30
+    pogoMoveDuration: 10
+    pogoMoveInterval: 20
+    pogoRadius: 40
+
+
+    gcThreshold: 10000
+    gcInterval: 1000
+
+    partitions:
+      0: "A"
+      1: "B"
+      2: "C"
+      3: "D"
+      4: "E"
+      5: "F"
+      6: "G"
+      7: "H"

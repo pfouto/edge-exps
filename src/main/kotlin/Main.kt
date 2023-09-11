@@ -7,6 +7,7 @@ import kotlinx.coroutines.*
 import latency.runLatency
 import micro.runMicro
 import mobility.runMobility
+import mobilityAdv.runMobilityAdv
 import org.apache.commons.lang3.exception.ExceptionUtils
 import org.apache.hc.client5.http.HttpHostConnectException
 import periodic.runPeriodic
@@ -146,6 +147,7 @@ suspend fun run(me: String, hosts: List<String>, arguments: Map<String, String>)
             "fails" -> runFail(it, proxies, dockerConfig)
             "periodic" -> runPeriodic(it, proxies, dockerConfig)
             "mobility" -> runMobility(it, proxies, dockerConfig)
+            "mobilityAdv" -> runMobilityAdv(it, proxies, dockerConfig)
             "latency" -> runLatency(it, proxies, dockerConfig)
             "micro_cassandra" -> runCassandraMicro(it, proxies, dockerConfig)
             "latency_cassandra" -> runCassandraLatency(it, proxies, dockerConfig)
