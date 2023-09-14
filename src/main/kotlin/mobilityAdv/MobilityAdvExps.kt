@@ -313,7 +313,7 @@ fun generateRandomClientPath(
     val sLocation = Point(clientLocation.x, clientLocation.y)
     path.add(Pair(0, closestActiveNode(Location(sLocation.x, sLocation.y, -1), locationsMap, nNodes).first))
 
-    for (randomStep in 0 until 1) {
+    for (randomStep in 0 until 3) {
         for (time in 0..duration) {
             val rotatedLocation =
                 sLocation.rotateAroundCenter((totalRotation * randomStep) + (totalRotation.toDouble() * time / duration))
@@ -369,7 +369,7 @@ private suspend fun startAllNodes(
                 "./start.sh", "$logsPath/$hostname", "hostname=$hostname", "region=eu", "datacenter=$dc",
                 "location_x=${location.x}", "location_y=${location.y}", "tree_builder_nnodes=${nodes.size}",
                 "gc_threshold=$gcThreshold", "gc_period=$gcInterval", "log_n_objects=1000",
-                "tree_builder_location_sub=$locationSub"
+                "tree_builder_location_sub=$locationSub", "propagate_timeout=100"
             )
 
             launch(Dispatchers.IO) {
