@@ -1,9 +1,8 @@
 dockerConfig: "docker_config.yaml"
 exps:
-  - type: "micro" #name of the exp
-    name: "performance"
+  - type: "micro_engage" #name of the exp
+    name: "perf_dc_engage"
     duration: 120
-    persistence: 100
     #    tcSetup: [ "tc_1.yaml","tc_2.yaml", "tc_3.yaml" ]
     tcSetup: [ "tc_1.yaml", "tc_2.yaml", "tc_3.yaml" ]
     #    nodes: [1, 20, 200]

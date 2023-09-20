@@ -2,6 +2,7 @@ import cassandra_latency.runCassandraLatency
 import cassandra_micro.runCassandraMicro
 import cassandra_periodic.runCassandraPeriodic
 import com.charleskorn.kaml.*
+import engage_micro.runMicroEngage
 import fail.runFail
 import kotlinx.coroutines.*
 import latency.runLatency
@@ -145,6 +146,7 @@ suspend fun run(me: String, hosts: List<String>, arguments: Map<String, String>)
     expNodes.items.forEach {
         when(val expType = it.yamlMap.get<YamlScalar>("type")!!.content) {
             "micro" -> runMicro(it, proxies, dockerConfig)
+            "micro_engage" -> runMicroEngage(it, proxies, dockerConfig)
             "fails" -> runFail(it, proxies, dockerConfig)
             "periodic" -> runPeriodic(it, proxies, dockerConfig)
             "periodicAdv" -> runPeriodicAdv(it, proxies, dockerConfig)

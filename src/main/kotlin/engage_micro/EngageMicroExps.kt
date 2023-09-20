@@ -1,4 +1,4 @@
-package micro
+package engage_micro
 
 import DockerProxy
 import Location
@@ -22,8 +22,8 @@ import java.io.FileInputStream
 import kotlin.math.pow
 import kotlin.math.sqrt
 
-suspend fun runMicro(expYaml: YamlNode, proxies: Proxies, dockerConfig: DockerConfig) {
-    val expConfig = Yaml.default.decodeFromString<MicroConfig>(expYaml.contentToString())
+suspend fun runMicroEngage(expYaml: YamlNode, proxies: Proxies, dockerConfig: DockerConfig) {
+    val expConfig = Yaml.default.decodeFromString<EngageMicroConfig>(expYaml.contentToString())
     val nExps = expConfig.tcSetup.size * expConfig.nodes.size * expConfig.dataDistribution.size *
             expConfig.readPercents.size * expConfig.threads.size
     println("------ Starting exp ${expConfig.name} with $nExps experiments ------")
@@ -103,10 +103,9 @@ suspend fun runMicro(expYaml: YamlNode, proxies: Proxies, dockerConfig: DockerCo
 
 private suspend fun runExp(
     nodes: List<DockerProxy.ContainerProxy>, clients: List<DockerProxy.ContainerProxy>,
-    locationsMap: Map<Int, Location>, expConfig: MicroConfig, nNodes: Int,
+    locationsMap: Map<Int, Location>, expConfig: EngageMicroConfig, nNodes: Int,
     dataDistribution: String, readPercent: Int, nThreads: Int, logsPath: String,
 ) {
-
     val sleep:Long = when (nNodes) {
         200 -> 40000
         20 -> 20000
@@ -134,7 +133,7 @@ private suspend fun runExp(
 private suspend fun startAllClients(
     clients: List<DockerProxy.ContainerProxy>, locationsMap: Map<Int, Location>,
     dataDistribution: String, nNodes: Int, nThreads: Int, readPercent: Int, logsPath: String,
-    expConfig: MicroConfig,
+    expConfig: EngageMicroConfig,
 ) {
     coroutineScope {
         clients.forEach { container ->
@@ -144,15 +143,14 @@ private suspend fun startAllClients(
             val clientNode = "node-${closestNode.first}"
             val nodeSlice = closestNode.second.slice
             val partitions = expConfig.partitions
-            val persistence = expConfig.persistence
             val cmd = mutableListOf(
                 "./start.sh",
                 "$logsPath/$hostname",
                 "-threads", "$nThreads",
+                "-p", "db=EngageClient",
                 "-p", "host=$clientNode",
                 "-p", "readproportion=${readPercent / 100.0}",
                 "-p", "updateproportion=${(100 - readPercent) / 100.0}",
-                "-p", "persistence=$persistence",
             )
 
             when (dataDistribution) {
@@ -213,7 +211,8 @@ private suspend fun startAllNodes(
             val cmd = mutableListOf(
                 "./start.sh", "$logsPath/$hostname", "hostname=$hostname", "region=eu", "datacenter=$dc",
                 "location_x=${location.x}", "location_y=${location.y}", "tree_builder_nnodes=${nodes.size}",
-                "propagate_timeout=50", "count_ops=true", "count_ops_start=$sleep", "count_ops_end=$duration"
+                "propagate_timeout=50", "count_ops=true", "count_ops_start=$sleep", "count_ops_end=$duration",
+                "engage=true"
             )
 
             launch(Dispatchers.IO) {

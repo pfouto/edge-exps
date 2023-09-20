@@ -3,6 +3,7 @@ exps:
   - type: "micro" #name of the exp
     name: "performance_test"
     duration: 120
+    persistence: 100
 
     tcSetup: [ "tc_1.yaml" ]
     nodes: [ 20 ]
