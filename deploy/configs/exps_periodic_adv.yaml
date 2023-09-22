@@ -6,7 +6,7 @@ exps:
     dataDistribution: "periodic"
 
     #    tcSetup: [ "tc_1.yaml","tc_2.yaml", "tc_3.yaml" ]
-    tcSetup: [ "tc_1.yaml"]
+    tcSetup: [ "tc_1.yaml","tc_2.yaml", "tc_3.yaml"]
     #    nodes: [1, 20, 200]
     nodes: [ 200 ]
     #    readPercents: [95, 50, 0]
