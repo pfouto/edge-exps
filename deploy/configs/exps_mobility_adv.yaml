@@ -27,6 +27,7 @@ exps:
     randomStart: 30
     randomDuration: 40
     randomInterval: 30
+    randomSlices: [0, 1, 2, 3, 4, 5, 6, 7]
 
     commuteWork: 30
     commuteHome: 80

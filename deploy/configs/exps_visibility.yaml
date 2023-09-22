@@ -1,0 +1,36 @@
+dockerConfig: "docker_config.yaml"
+exps:
+  - type: "visibility" #name of the exp
+    name: "visibility"
+
+    duration: 120
+
+    #    tcSetup: [ "tc_1.yaml","tc_2.yaml", "tc_3.yaml" ]
+    tcSetup: [ "tc_1.yaml"]
+    #    nodes: [1, 20, 200]
+    nodes: [ 200 ]
+    #    readPercents: [95, 50, 0]
+    readPercents: 0
+    #    threads: [ 1, 2, 4, 8, 16, 32, 64, 128, 256, 512 ]
+
+    threads: 1
+    limit: 20
+    recordCount: 20
+
+    dataDistribution: "local"
+
+    treeBuilderSubList: [ "wide", "centralized", "deep" ]
+
+
+    gcThreshold: 150000
+    gcInterval: 10000
+
+    partitions:
+      0: "A"
+      1: "B"
+      2: "C"
+      3: "D"
+      4: "E"
+      5: "F"
+      6: "G"
+      7: "H"

@@ -14,6 +14,7 @@ import org.apache.commons.lang3.exception.ExceptionUtils
 import org.apache.hc.client5.http.HttpHostConnectException
 import periodic.runPeriodic
 import utils.DockerConfig
+import visibility.runVisibility
 import java.io.File
 import java.io.FileInputStream
 import java.net.InetAddress
@@ -156,6 +157,7 @@ suspend fun run(me: String, hosts: List<String>, arguments: Map<String, String>)
             "micro_cassandra" -> runCassandraMicro(it, proxies, dockerConfig)
             "latency_cassandra" -> runCassandraLatency(it, proxies, dockerConfig)
             "periodic_cassandra" -> runCassandraPeriodic(it, proxies, dockerConfig)
+            "visibility" -> runVisibility(it, proxies, dockerConfig)
 
             else -> throw IllegalArgumentException("Unknown experiment type: $expType")
         }

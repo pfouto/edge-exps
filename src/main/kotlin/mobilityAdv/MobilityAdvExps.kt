@@ -137,6 +137,10 @@ private suspend fun startAllClients(
             val nodeSlice = closestNode.second.slice
             val partitions = expConfig.partitions
 
+            if(migrationPattern == "random" && !expConfig.randomSlices.contains(nodeSlice)) {
+                return@forEach
+            }
+
             val cmd = mutableListOf(
                 "./start.sh",
                 "$logsPath/$hostname",

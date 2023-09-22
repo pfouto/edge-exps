@@ -112,7 +112,8 @@ private suspend fun runExp(
         1 -> 5000
         else -> throw Exception("Invalid number of nodes $nNodes")
     }
-    startAllNodes(nodes, locationsMap, logsPath, sleep, expConfig.duration * 1000L)
+    startAllNodes(nodes, locationsMap, logsPath, sleep, expConfig.duration * 1000L, dataDistribution,
+        expConfig.partitions)
     //println("Waiting for tree to stabilize")
 
     sleep(sleep)
@@ -199,8 +200,9 @@ private fun distance(loc1: Location, loc2: Location): Double {
 private suspend fun startAllNodes(
     nodes: List<DockerProxy.ContainerProxy>,
     locationsMap: Map<Int, Location>,
-    logsPath: String, sleep: Long, duration: Long
-) {
+    logsPath: String, sleep: Long, duration: Long, dataDistribution: String, partitions: Map<Int, String>,
+
+    ) {
     //print("Starting nodes... ")
     coroutineScope {
         val dc = nodes[0].inspect.config.hostName!!
@@ -214,6 +216,22 @@ private suspend fun startAllNodes(
                 "propagate_timeout=50", "count_ops=true", "count_ops_start=$sleep", "count_ops_end=$duration",
                 "engage=true"
             )
+
+            when (dataDistribution) {
+                "global" -> {
+                    cmd.add("eng_partitions=${partitions.values.joinToString(",")}")
+                }
+
+                "local" -> {
+                    val tables = if (location.slice != -1) "${partitions[location.slice]!!}," +
+                            "${partitions[(location.slice + 1) % partitions.size]}," +
+                            "${partitions[if (location.slice - 1 < 0) partitions.size - 1 else location.slice - 1]}"
+                    else partitions.values.joinToString(",")
+                    cmd.add("eng_partitions=$tables")
+                }
+
+                else -> throw Exception("Invalid data distribution $dataDistribution")
+            }
 
             launch(Dispatchers.IO) {
                 container.proxy.executeCommand(container.inspect.id, cmd.toTypedArray(), "/server")

@@ -18,6 +18,7 @@ data class MobilityAdvConfig(
     val randomStart: Int,
     val randomDuration: Int,
     val randomInterval: Int,
+    val randomSlices: List<Int>,
     val limit: Int,
 
     val treeBuilderSubList: List<String>,
