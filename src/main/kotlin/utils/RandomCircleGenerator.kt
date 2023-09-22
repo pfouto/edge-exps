@@ -40,7 +40,7 @@ fun main(args: Array<String>) {
         println(nId++)
     }
 
-    //Write allNodes to a file
+    //Write allNodes to a file<
     val file = java.io.File("nodes_$seed.txt")
     file.delete()
     allNodes.forEach {

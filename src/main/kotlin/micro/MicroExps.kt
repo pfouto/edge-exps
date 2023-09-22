@@ -113,7 +113,7 @@ private suspend fun runExp(
         1 -> 5000
         else -> throw Exception("Invalid number of nodes $nNodes")
     }
-    startAllNodes(nodes, locationsMap, logsPath, sleep, expConfig.duration * 1000L)
+    startAllNodes(nodes, locationsMap, logsPath, sleep, expConfig.duration * 1000L, expConfig.locationSub)
     //println("Waiting for tree to stabilize")
 
     sleep(sleep)
@@ -201,7 +201,7 @@ private fun distance(loc1: Location, loc2: Location): Double {
 private suspend fun startAllNodes(
     nodes: List<DockerProxy.ContainerProxy>,
     locationsMap: Map<Int, Location>,
-    logsPath: String, sleep: Long, duration: Long
+    logsPath: String, sleep: Long, duration: Long, locationSub: String
 ) {
     //print("Starting nodes... ")
     coroutineScope {
@@ -213,7 +213,8 @@ private suspend fun startAllNodes(
             val cmd = mutableListOf(
                 "./start.sh", "$logsPath/$hostname", "hostname=$hostname", "region=eu", "datacenter=$dc",
                 "location_x=${location.x}", "location_y=${location.y}", "tree_builder_nnodes=${nodes.size}",
-                "propagate_timeout=50", "count_ops=true", "count_ops_start=$sleep", "count_ops_end=$duration"
+                "propagate_timeout=50", "count_ops=true", "count_ops_start=$sleep", "count_ops_end=$duration",
+                "tree_builder_location_sub=$locationSub",
             )
 
             launch(Dispatchers.IO) {
