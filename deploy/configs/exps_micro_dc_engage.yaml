@@ -4,7 +4,7 @@ exps:
     name: "perf_dc_engage"
     duration: 120
     #    tcSetup: [ "tc_1.yaml","tc_2.yaml", "tc_3.yaml" ]
-    tcSetup: [ "tc_1.yaml","tc_2.yaml", "tc_3.yaml" ]
+    tcSetup: [ "tc_1.yaml" ]
     #    nodes: [1, 20, 200]
     nodes: [ 20, 200 ]
     #    dataDistribution: ["global", "local"]
@@ -17,10 +17,10 @@ exps:
     threadLimit:
       20:
         local:
-          0: 32
+          0: 16
       200:
         local:
-          0: 32
+          0: 16
 
     partitions:
       0: "A"
