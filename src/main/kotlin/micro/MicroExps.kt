@@ -107,7 +107,7 @@ private suspend fun runExp(
     dataDistribution: String, readPercent: Int, nThreads: Int, logsPath: String,
 ) {
 
-    val sleep:Long = when (nNodes) {
+    val sleep: Long = when (nNodes) {
         200 -> 40000
         20 -> 20000
         1 -> 5000
@@ -176,6 +176,17 @@ private suspend fun startAllClients(
                     cmd.add("tables=$tables")
                 }
 
+                "single" -> {
+                    val tables = if (nodeSlice != -1) partitions[nodeSlice]!!
+                    else partitions.values.joinToString(",")
+
+                    cmd.add("-p")
+                    cmd.add("workload=site.ycsb.workloads.EdgeFixedWorkload")
+                    cmd.add("-p")
+                    cmd.add("tables=$tables")
+                }
+
+
                 else -> throw Exception("Invalid data distribution $dataDistribution")
             }
             launch(Dispatchers.IO) {
@@ -186,7 +197,7 @@ private suspend fun startAllClients(
 }
 
 private fun closestActiveNode(clientNumber: Int, locationsMap: Map<Int, Location>, nNodes: Int): Pair<Int, Location> {
-    if(nNodes == 1) return Pair(0, locationsMap[0]!!)
+    if (nNodes == 1) return Pair(0, locationsMap[0]!!)
 
     val clientLoc = locationsMap[clientNumber]!!
     val activeNodes = locationsMap.filter { it.key < nNodes && it.key != 0 }
@@ -201,7 +212,7 @@ private fun distance(loc1: Location, loc2: Location): Double {
 private suspend fun startAllNodes(
     nodes: List<DockerProxy.ContainerProxy>,
     locationsMap: Map<Int, Location>,
-    logsPath: String, sleep: Long, duration: Long, locationSub: String
+    logsPath: String, sleep: Long, duration: Long, locationSub: String,
 ) {
     //print("Starting nodes... ")
     coroutineScope {
@@ -214,7 +225,7 @@ private suspend fun startAllNodes(
                 "./start.sh", "$logsPath/$hostname", "hostname=$hostname", "region=eu", "datacenter=$dc",
                 "location_x=${location.x}", "location_y=${location.y}", "tree_builder_nnodes=${nodes.size}",
                 "propagate_timeout=50", "count_ops=true", "count_ops_start=$sleep", "count_ops_end=$duration",
-                "tree_builder_location_sub=$locationSub",
+                "tree_builder_location_sub=$locationSub", "log_n_objects=5000",
             )
 
             launch(Dispatchers.IO) {
