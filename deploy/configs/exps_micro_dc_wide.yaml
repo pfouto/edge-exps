@@ -4,8 +4,8 @@ exps:
     name: "perf_dc_wide"
     duration: 120
     persistence: 1
-    #    tcSetup: [ "tc_1.yaml","tc_2.yaml", "tc_3.yaml" ]
-    tcSetup: [ "tc_1.yaml" ]
+    tcSetup: [ "tc_1.yaml","tc_2.yaml", "tc_3.yaml" ]
+    #tcSetup: [ "tc_1.yaml" ]
     #    nodes: [1, 20, 200]
     nodes: [ 20,200 ]
     #    dataDistribution: ["global", "local"]
@@ -13,9 +13,11 @@ exps:
     #    readPercents: [95, 50, 0]
     readPercents: [ 0 ]
     #    threads: [ 1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048 ]
-    threads: [ 1, 2, 3, 4, 6, 8, 10, 12, 14, 16, 20, 24, 28, 32, 40]
+    threads: [ 1, 2, 3, 4, 5, 6, 7, 8, 10, 12, 14, 16]
 
     locationSub: "wide"
+
+    recordCount: 50
 
     threadLimit:
       20:
