@@ -8,9 +8,9 @@ import kotlin.random.Random
 
 const val nPoints = 200
 const val circleRadius = 300
-const val seed = 3
+const val seed = 1
 const val minDist = 30
-const val nSlices = 8
+const val nSlices = 80
 
 val dec = DecimalFormat("#,###.##")
 
@@ -41,7 +41,7 @@ fun main(args: Array<String>) {
     }
 
     //Write allNodes to a file<
-    val file = java.io.File("nodes_$seed.txt")
+    val file = java.io.File("nodes_${seed}_$nSlices.txt")
     file.delete()
     allNodes.forEach {
         file.appendText("${it.id}\t${it.x}\t${it.y}\t${it.slice}\n")
@@ -50,7 +50,7 @@ fun main(args: Array<String>) {
     var maxDist = 0.0
     var minDist = Double.MAX_VALUE
 
-    val file2 = java.io.File("latencies_$seed.txt")
+    val file2 = java.io.File("latencies_${seed}.txt")
     file2.delete()
     allNodes.forEach {
         allNodes.forEach { other ->

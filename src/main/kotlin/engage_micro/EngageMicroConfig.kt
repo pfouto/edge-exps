@@ -14,4 +14,5 @@ data class EngageMicroConfig(
     val threads: List<Int>,
     val readPercents: List<Int>,
     val threadLimit: Map<Int, Map<String, Map<Int, Int>>>,
+    val locationSub: String = "deep"
 )

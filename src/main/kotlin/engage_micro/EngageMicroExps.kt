@@ -113,7 +113,7 @@ private suspend fun runExp(
         else -> throw Exception("Invalid number of nodes $nNodes")
     }
     startAllNodes(nodes, locationsMap, logsPath, sleep, expConfig.duration * 1000L, dataDistribution,
-        expConfig.partitions)
+        expConfig.partitions, expConfig.locationSub)
     //println("Waiting for tree to stabilize")
 
     sleep(sleep)
@@ -201,7 +201,7 @@ private suspend fun startAllNodes(
     nodes: List<DockerProxy.ContainerProxy>,
     locationsMap: Map<Int, Location>,
     logsPath: String, sleep: Long, duration: Long, dataDistribution: String, partitions: Map<Int, String>,
-
+    locationSub: String
     ) {
     //print("Starting nodes... ")
     coroutineScope {
@@ -214,7 +214,7 @@ private suspend fun startAllNodes(
                 "./start.sh", "$logsPath/$hostname", "hostname=$hostname", "region=eu", "datacenter=$dc",
                 "location_x=${location.x}", "location_y=${location.y}", "tree_builder_nnodes=${nodes.size}",
                 "propagate_timeout=50", "count_ops=true", "count_ops_start=$sleep", "count_ops_end=$duration",
-                "engage=true"
+                "engage=true", "tree_builder_location_sub=$locationSub"
             )
 
             when (dataDistribution) {

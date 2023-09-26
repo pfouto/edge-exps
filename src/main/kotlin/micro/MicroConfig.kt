@@ -15,5 +15,6 @@ data class MicroConfig(
     val readPercents: List<Int>,
     val threadLimit: Map<Int, Map<String, Map<Int, Int>>>,
     val persistence: Int,
-    val locationSub: String = "deep"
+    val locationSub: String = "deep",
+    val recordCount: Int = 500
 )

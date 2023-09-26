@@ -142,7 +142,7 @@ private suspend fun startAllClients(
             val clientNumber = hostname.split("-")[1].toInt()
             val closestNode = closestActiveNode(clientNumber, locationsMap, nNodes)
             val clientNode = "node-${closestNode.first}"
-            val nodeSlice = closestNode.second.slice
+            val clientSlice = closestNode(clientNumber, locationsMap).second.slice
             val partitions = expConfig.partitions
             val persistence = expConfig.persistence
             val cmd = mutableListOf(
@@ -153,6 +153,7 @@ private suspend fun startAllClients(
                 "-p", "readproportion=${readPercent / 100.0}",
                 "-p", "updateproportion=${(100 - readPercent) / 100.0}",
                 "-p", "persistence=$persistence",
+                "-p", "recordcount=${expConfig.recordCount}",
             )
 
             when (dataDistribution) {
@@ -165,9 +166,9 @@ private suspend fun startAllClients(
 
                 "local" -> {
 
-                    val tables = if (nodeSlice != -1) "${partitions[nodeSlice]!!}," +
-                            "${partitions[(nodeSlice + 1) % partitions.size]}," +
-                            "${partitions[if (nodeSlice - 1 < 0) partitions.size - 1 else nodeSlice - 1]}"
+                    val tables = if (clientSlice != -1) "${partitions[clientSlice]!!}," +
+                            "${partitions[(clientSlice + 1) % partitions.size]}," +
+                            "${partitions[if (clientSlice - 1 < 0) partitions.size - 1 else clientSlice - 1]}"
                     else partitions.values.joinToString(",")
 
                     cmd.add("-p")
@@ -177,7 +178,7 @@ private suspend fun startAllClients(
                 }
 
                 "single" -> {
-                    val tables = if (nodeSlice != -1) partitions[nodeSlice]!!
+                    val tables = if (clientSlice != -1) partitions[clientSlice]!!
                     else partitions.values.joinToString(",")
 
                     cmd.add("-p")
@@ -201,6 +202,13 @@ private fun closestActiveNode(clientNumber: Int, locationsMap: Map<Int, Location
 
     val clientLoc = locationsMap[clientNumber]!!
     val activeNodes = locationsMap.filter { it.key < nNodes && it.key != 0 }
+    val closestNode = activeNodes.minByOrNull { distance(clientLoc, it.value) }!!
+    return Pair(closestNode.key, closestNode.value)
+}
+private fun closestNode(clientNumber: Int, locationsMap: Map<Int, Location>): Pair<Int, Location> {
+
+    val clientLoc = locationsMap[clientNumber]!!
+    val activeNodes = locationsMap.filter { it.key != 0 }
     val closestNode = activeNodes.minByOrNull { distance(clientLoc, it.value) }!!
     return Pair(closestNode.key, closestNode.value)
 }
