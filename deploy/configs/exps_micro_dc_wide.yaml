@@ -9,11 +9,11 @@ exps:
     #    nodes: [1, 20, 200]
     nodes: [ 20,200 ]
     #    dataDistribution: ["global", "local"]
-    dataDistribution: [ "local"]
+    dataDistribution: [ "local", "single"]
     #    readPercents: [95, 50, 0]
     readPercents: [ 0 ]
     #    threads: [ 1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048 ]
-    threads: [ 1, 2, 3, 4, 5, 6, 7, 8, 10, 12, 14, 16]
+    threads: [ 1, 2, 3, 4, 5, 6, 7, 8, 10, 12, 14, 16, 24, 32, 40]
 
     locationSub: "wide"
 
