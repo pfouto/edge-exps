@@ -1,11 +1,11 @@
 dockerConfig: "docker_config.yaml"
 exps:
   - type: "micro" #name of the exp
-    name: "perf_dc_central"
-    duration: 120
+    name: "perf_dc_wide_testing"
+    duration: 60
     persistence: 1
     tcSetup: [ "tc_1.yaml","tc_2.yaml", "tc_3.yaml" ]
-    #tcSetup: [ "tc_1.yaml"]
+    #tcSetup: [ "tc_1.yaml" ]
     #    nodes: [1, 20, 200]
     nodes: [ 20,200 ]
     #    dataDistribution: ["global", "local"]
@@ -13,9 +13,9 @@ exps:
     #    readPercents: [95, 50, 0]
     readPercents: [ 0 ]
     #    threads: [ 1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048 ]
-    threads: [ 1, 2, 3, 4, 5, 6, 7, 8, 10, 12, 14, 16]
+    threads: [ 1]
 
-    locationSub: "centralized"
+    locationSub: "wide"
 
     recordCount: 50
 
