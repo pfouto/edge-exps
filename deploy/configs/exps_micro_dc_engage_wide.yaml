@@ -4,7 +4,7 @@ exps:
     name: "perf_dc_engage_wide"
     duration: 120
     #    tcSetup: [ "tc_1.yaml","tc_2.yaml", "tc_3.yaml" ]
-    tcSetup: [ "tc_1.yaml" ]
+    tcSetup: [ "tc_1.yaml","tc_2.yaml", "tc_3.yaml" ]
     #    nodes: [1, 20, 200]
     nodes: [ 20, 200 ]
     #    dataDistribution: ["global", "local"]

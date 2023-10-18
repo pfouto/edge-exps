@@ -113,7 +113,7 @@ private suspend fun runExp(
         else -> throw Exception("Invalid number of nodes $nNodes")
     }
     startAllNodes(nodes, locationsMap, logsPath, sleep, expConfig.duration * 1000L, dataDistribution,
-        expConfig.partitions, expConfig.locationSub)
+        expConfig.partitions, expConfig.locationSub, clients, nNodes)
     //println("Waiting for tree to stabilize")
 
     sleep(sleep)
@@ -142,7 +142,7 @@ private suspend fun startAllClients(
             val clientNumber = hostname.split("-")[1].toInt()
             val closestNode = closestActiveNode(clientNumber, locationsMap, nNodes)
             val clientNode = "node-${closestNode.first}"
-            val nodeSlice = closestNode.second.slice
+            val clientSlice = closestNode(clientNumber, locationsMap).second.slice
             val partitions = expConfig.partitions
             val cmd = mutableListOf(
                 "./start.sh",
@@ -164,9 +164,9 @@ private suspend fun startAllClients(
 
                 "local" -> {
 
-                    val tables = if (nodeSlice != -1) "${partitions[nodeSlice]!!}," +
-                            "${partitions[(nodeSlice + 1) % partitions.size]}," +
-                            "${partitions[if (nodeSlice - 1 < 0) partitions.size - 1 else nodeSlice - 1]}"
+                    val tables = if (clientSlice != -1) "${partitions[clientSlice]!!}," +
+                            "${partitions[(clientSlice + 1) % partitions.size]}," +
+                            "${partitions[if (clientSlice - 1 < 0) partitions.size - 1 else clientSlice - 1]}"
                     else partitions.values.joinToString(",")
 
                     cmd.add("-p")
@@ -193,6 +193,14 @@ private fun closestActiveNode(clientNumber: Int, locationsMap: Map<Int, Location
     return Pair(closestNode.key, closestNode.value)
 }
 
+private fun closestNode(clientNumber: Int, locationsMap: Map<Int, Location>): Pair<Int, Location> {
+
+    val clientLoc = locationsMap[clientNumber]!!
+    val activeNodes = locationsMap.filter { it.key != 0 }
+    val closestNode = activeNodes.minByOrNull { distance(clientLoc, it.value) }!!
+    return Pair(closestNode.key, closestNode.value)
+}
+
 private fun distance(loc1: Location, loc2: Location): Double {
     return sqrt((loc1.x - loc2.x).pow(2.0) + (loc1.y - loc2.y).pow(2.0))
 }
@@ -201,8 +209,24 @@ private suspend fun startAllNodes(
     nodes: List<DockerProxy.ContainerProxy>,
     locationsMap: Map<Int, Location>,
     logsPath: String, sleep: Long, duration: Long, dataDistribution: String, partitions: Map<Int, String>,
-    locationSub: String
+    locationSub: String, clients: List<DockerProxy.ContainerProxy>, nNodes: Int
     ) {
+
+    val nodePartitionsLocal = mutableMapOf<Int, MutableSet<String>>()
+
+    clients.forEach { container ->
+        val hostname = container.inspect.config.hostName!!
+        val clientNumber = hostname.split("-")[1].toInt()
+        val clientSlice = closestNode(clientNumber, locationsMap).second.slice
+        val closestNode = closestActiveNode(clientNumber, locationsMap, nNodes)
+
+        nodePartitionsLocal.computeIfAbsent(closestNode.first) { mutableSetOf() }.let {
+            it.add(partitions[clientSlice]!!)
+            it.add(partitions[(clientSlice + 1) % partitions.size]!!)
+            it.add(partitions[if (clientSlice - 1 < 0) partitions.size - 1 else clientSlice - 1]!!)
+        }
+    }
+
     //print("Starting nodes... ")
     coroutineScope {
         val dc = nodes[0].inspect.config.hostName!!
@@ -223,11 +247,9 @@ private suspend fun startAllNodes(
                 }
 
                 "local" -> {
-                    val tables = if (location.slice != -1) "${partitions[location.slice]!!}," +
-                            "${partitions[(location.slice + 1) % partitions.size]}," +
-                            "${partitions[if (location.slice - 1 < 0) partitions.size - 1 else location.slice - 1]}"
+                    val tablesLocal = if (nodeNumber != 0) nodePartitionsLocal[nodeNumber]!!.joinToString(",")
                     else partitions.values.joinToString(",")
-                    cmd.add("eng_partitions=$tables")
+                    cmd.add("eng_partitions=$tablesLocal")
                 }
 
                 else -> throw Exception("Invalid data distribution $dataDistribution")
