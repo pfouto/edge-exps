@@ -1,6 +1,7 @@
 import cassandra_latency.runCassandraLatency
 import cassandra_micro.runCassandraMicro
 import cassandra_periodic.runCassandraPeriodic
+import cassandra_periodic.runCassandraPeriodicAdv
 import com.charleskorn.kaml.*
 import engage_micro.runMicroEngage
 import fail.runFail
@@ -157,6 +158,7 @@ suspend fun run(me: String, hosts: List<String>, arguments: Map<String, String>)
             "micro_cassandra" -> runCassandraMicro(it, proxies, dockerConfig)
             "latency_cassandra" -> runCassandraLatency(it, proxies, dockerConfig)
             "periodic_cassandra" -> runCassandraPeriodic(it, proxies, dockerConfig)
+            "periodic_cassandra_adv" -> runCassandraPeriodicAdv(it, proxies, dockerConfig)
             "visibility" -> runVisibility(it, proxies, dockerConfig)
 
             else -> throw IllegalArgumentException("Unknown experiment type: $expType")

@@ -1,0 +1,35 @@
+dockerConfig: "cass_docker_config.yaml"
+exps:
+  - type: "periodic_cassandra_adv" #name of the exp
+    name: "periodic_adv"
+    duration: 120
+    dataDistribution: "periodic"
+
+    #    tcSetup: [ "tc_1.yaml","tc_2.yaml", "tc_3.yaml" ]
+    tcSetup: [ "tc_1.yaml", "tc_2.yaml", "tc_3.yaml"]
+    #    nodes: [1, 20, 200]
+    nodes: [ 200 ]
+    #    readPercents: [95, 50, 0]
+    readPercents: [ 99 ]
+    #    threads: [ 1, 2, 4, 8, 16, 32, 64, 128, 256, 512 ]
+
+    threads: 16
+    limit: 100
+    recordCount: 200
+
+    periodicModes: ["coordinated", "uncoordinated"]
+
+    periodicRemoteInterval: 30000
+    periodicRemoteDuration: 10000
+
+
+
+    partitions:
+      0: "A"
+      1: "B"
+      2: "C"
+      3: "D"
+      4: "E"
+      5: "F"
+      6: "G"
+      7: "H"
